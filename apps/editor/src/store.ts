@@ -6,6 +6,7 @@
  */
 import { create } from "zustand";
 import type {
+  AudioObject,
   CharacterAnimationName,
   CharacterColors,
   CharacterFacing,
@@ -19,6 +20,12 @@ import type {
   VideoSceneTransition,
 } from "@finch-studio/core";
 import { makeVideoProject, makeVideoScene } from "@finch-studio/animation";
+import {
+  addAudioVolumeKeyframe,
+  rippleDeleteAudioRegion as rippleDeleteRegion,
+  withAudioClipMetadata,
+  type AudioClipMetadata,
+} from "./audioEditing";
 
 let objCounter = 0;
 function newObjId(prefix: string): string {
@@ -122,6 +129,9 @@ interface VideoStudioState {
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
+  updateAudioMetadata: (id: string, patch: Partial<AudioClipMetadata>) => void;
+  addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
+  rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -263,6 +273,49 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const objects = [...scene.objects];
       [objects[i], objects[j]] = [objects[j], objects[i]];
       commit(patchScene(project, currentSceneId, (s) => ({ ...s, objects })));
+    },
+    updateAudioMetadata: (id, patch) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) =>
+          object.type === "audio"
+            ? withAudioClipMetadata(object as AudioObject, patch)
+            : object,
+        ),
+      );
+    },
+    addAudioVolumeKeyframe: (id, timeMs, decibels) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "audio") return object;
+          const durationMs = (object.timing?.duration ?? scene.durationMs / 1000) * 1000;
+          return addAudioVolumeKeyframe(
+            object as AudioObject,
+            timeMs,
+            decibels,
+            durationMs,
+          );
+        }),
+      );
+    },
+    rippleDeleteAudioRegion: (startMs, endMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          objects: rippleDeleteRegion(
+            current.objects,
+            startMs,
+            endMs,
+            scene.durationMs,
+          ),
+        })),
+      );
     },
 
     setCharAnimation: (id, a) => {
