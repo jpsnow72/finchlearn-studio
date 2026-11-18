@@ -1,0 +1,27 @@
+{
+  "name": "@finch-studio/animation",
+  "version": "0.1.0",
+  "description": "FinchLearn Studio animation machinery: scene clock, dialogue, TTS seam, video project model (extracted from @ocf/animation-studio)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@finch-studio/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "typescript": "^5.6.3",
+    "vitest": "^5.0.3"
+  }
+}

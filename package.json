@@ -1,0 +1,22 @@
+{
+  "name": "finchlearn-studio",
+  "description": "FinchLearn Studio: scene first video editor (Vyond ease plus Premiere basics), standalone and embedded in FinchLearn",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "jsdom": "^25.0.1",
+    "@types/jsdom": "^21.1.7"
+  }
+}
