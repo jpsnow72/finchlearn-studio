@@ -36,6 +36,8 @@ export {
   newVideoId,
   makeVideoScene,
   makeVideoProject,
+  sceneContentDurationMs,
+  DEFAULT_SCENE_DURATION_MS,
   projectTimeline,
   projectDurationMs,
   sceneAt,

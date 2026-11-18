@@ -62,6 +62,14 @@ describe("schema v1", () => {
     expect(totalMs).toBe(10600);
     expect(projectDurationMs(p)).toBe(10600);
   });
+
+  it("overlaps every non-cut transition", () => {
+    const p = sampleProject();
+    for (const transition of ["fade", "slide", "wipe", "zoom", "push"] as const) {
+      p.scenes[1].transition = transition;
+      expect(projectTimeline(p).totalMs).toBe(10600);
+    }
+  });
 });
 
 describe("OCF mapping", () => {
@@ -89,5 +97,17 @@ describe("OCF mapping", () => {
     expect(validateStudioProject(back)).toEqual([]);
     expect(back.scenes[0].elements.some((e) => e.kind === "footage")).toBe(true);
     expect(back.scenes[0].elements.some((e) => e.kind === "chart")).toBe(false);
+  });
+
+  it("round trips all supported seam transitions without a sidecar", () => {
+    const p = sampleProject();
+    const transitions = ["cut", "fade", "slide", "wipe", "zoom", "push"] as const;
+    p.scenes = transitions.map((transition, index) => ({
+      ...makeStudioScene(`Scene ${index + 1}`),
+      transition,
+    }));
+    const { project } = studioToOCF(p);
+    const back = ocfToStudio(project);
+    expect(back.scenes.map((scene) => scene.transition)).toEqual(transitions);
   });
 });
