@@ -305,9 +305,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project, currentSceneId } = get();
       const scene = project.scenes.find((item) => item.id === currentSceneId);
       if (!scene) return;
+      const start = Math.max(0, Math.min(startMs, endMs));
+      const end = Math.min(scene.durationMs, Math.max(startMs, endMs));
+      const removedDuration = Math.max(0, end - start);
       commit(
         patchScene(project, currentSceneId, (current) => ({
           ...current,
+          durationMs: Math.max(500, current.durationMs - removedDuration),
           objects: rippleDeleteRegion(
             current.objects,
             startMs,

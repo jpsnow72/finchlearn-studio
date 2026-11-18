@@ -101,6 +101,8 @@ function withTrimmedAudio(
   durationMs: number,
   peakFrom: number,
   peakTo: number,
+  sourceOffsetDeltaMs: number,
+  keyframeFromMs: number,
   clearFadeIn: boolean,
   clearFadeOut: boolean,
 ): AudioObject {
@@ -114,8 +116,20 @@ function withTrimmedAudio(
   }
   if (clearFadeIn) patch.fadeInMs = 0;
   if (clearFadeOut) patch.fadeOutMs = 0;
-  if (peakFrom > 0) {
-    patch.sourceOffsetMs = (metadata.sourceOffsetMs ?? 0) + startMs;
+  if (sourceOffsetDeltaMs > 0) {
+    patch.sourceOffsetMs = (metadata.sourceOffsetMs ?? 0) + sourceOffsetDeltaMs;
+  }
+  if (metadata.volumeKeyframes) {
+    patch.volumeKeyframes = metadata.volumeKeyframes
+      .filter(
+        (keyframe) =>
+          keyframe.timeMs >= keyframeFromMs &&
+          keyframe.timeMs <= keyframeFromMs + durationMs,
+      )
+      .map((keyframe) => ({
+        ...keyframe,
+        timeMs: keyframe.timeMs - keyframeFromMs,
+      }));
   }
   return {
     ...withAudioClipMetadata(object, patch),
@@ -139,7 +153,31 @@ export function rippleDeleteAudioRegion(
   if (removedDuration <= 0) return objects;
 
   return objects.flatMap<CourseObject>((object): CourseObject[] => {
-    if (object.type !== "audio") return [object];
+    if (object.type !== "audio") {
+      const timing = object.timing;
+      if (!timing || timing.duration === undefined) return [object];
+      const clipStart = Math.max(0, (timing.start ?? 0) * 1000);
+      const clipDuration = Math.max(0, timing.duration * 1000);
+      const clipEnd = clipStart + clipDuration;
+      if (clipEnd <= start) return [object];
+      if (clipStart >= end) {
+        return [{
+          ...object,
+          timing: { ...timing, start: (clipStart - removedDuration) / 1000 },
+        }];
+      }
+      const overlap = Math.min(clipEnd, end) - Math.max(clipStart, start);
+      const nextDuration = Math.max(0, clipDuration - overlap);
+      if (nextDuration === 0) return [];
+      return [{
+        ...object,
+        timing: {
+          ...timing,
+          start: (clipStart >= start ? start : clipStart) / 1000,
+          duration: nextDuration / 1000,
+        },
+      }];
+    }
     const audio = object as AudioObject;
     const clipStart = Math.max(0, (audio.timing?.start ?? 0) * 1000);
     const clipDuration = Math.max(
@@ -164,6 +202,8 @@ export function rippleDeleteAudioRegion(
         leftDuration,
         0,
         leftDuration / clipDuration,
+        0,
+        0,
         false,
         true,
       );
@@ -176,6 +216,8 @@ export function rippleDeleteAudioRegion(
         rightDuration,
         (end - clipStart) / clipDuration,
         1,
+        end - clipStart,
+        end - clipStart,
         true,
         false,
       );
@@ -189,6 +231,8 @@ export function rippleDeleteAudioRegion(
           leftDuration,
           0,
           leftDuration / clipDuration,
+          0,
+          0,
           false,
           true,
         ),
@@ -202,6 +246,8 @@ export function rippleDeleteAudioRegion(
           rightDuration,
           (end - clipStart) / clipDuration,
           1,
+          end - clipStart,
+          end - clipStart,
           true,
           false,
         ),
