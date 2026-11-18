@@ -1,7 +1,7 @@
 /**
- * videoExport: legacy quick export, render a VideoProject to WebM (canvas
- * plus MediaRecorder). This is the fast preview grade path kept from the
- * extracted video studio app. The production render paths are the client
+ * videoExport: legacy quick export, render a VideoProject with canvas and
+ * MediaRecorder. This is the fast preview grade path kept from the extracted
+ * video studio app. The production render paths are the client
  * WebCodecs export and the server FFmpeg pipeline (issues #48 and #33),
  * which must match the stage canvas frame for frame (issue #8 parity rule).
  *
@@ -22,6 +22,7 @@ import {
   transitionAlpha,
 } from "@finch-studio/animation";
 import { facingFromAngle, samplePath } from "@finch-studio/core";
+import { getRenderViewport } from "./exportPresets";
 
 const FPS = 30;
 
@@ -221,10 +222,11 @@ function drawObject(
   }
 }
 
-/** Render the whole project to a WebM blob. */
+/** Render the whole project to a browser-supported MP4 or WebM blob. */
 export async function exportVideoProject(
   project: VideoProject,
   onProgress?: (fraction: number) => void,
+  dimensions: { width: number; height: number } = { width: 1280, height: 720 },
 ): Promise<Blob> {
   if (
     typeof MediaRecorder === "undefined" ||
@@ -235,8 +237,11 @@ export async function exportVideoProject(
     );
   }
 
-  const width = 1280;
-  const height = 720;
+  const { width, height } = dimensions;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("The selected video preset has invalid dimensions. Choose another preset.");
+  }
+  const viewport = getRenderViewport(width, height);
   const { scenes: tl, totalMs } = projectTimeline(project);
   if (tl.length === 0) throw new Error("Project has no scenes.");
   const totalFrames = Math.max(1, Math.round((totalMs / 1000) * FPS));
@@ -262,27 +267,52 @@ export async function exportVideoProject(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not get 2D canvas context.");
 
-  const stream = canvas.captureStream(FPS);
-  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-    ? "video/webm;codecs=vp9"
-    : "video/webm";
-  const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
-  const chunks: BlobPart[] = [];
-  const done = new Promise<Blob>((resolve, reject) => {
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    rec.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
-    rec.onerror = () => reject(new Error("MediaRecorder error during video export."));
-  });
-  rec.start(200);
-
   // Offscreen canvas per scene for fade compositing.
   const sceneCanvas = document.createElement("canvas");
   sceneCanvas.width = width;
   sceneCanvas.height = height;
   const sctx = sceneCanvas.getContext("2d");
-  if (!sctx) throw new Error("Could not get 2D canvas context.");
+  if (!sctx) throw new Error("Could not create the fade-compositing canvas. Try another browser.");
+
+  let stream: MediaStream;
+  try {
+    stream = canvas.captureStream(FPS);
+  } catch {
+    throw new Error("Canvas capture could not start. Refresh the editor and try again.");
+  }
+  const mimeTypes = [
+    "video/mp4;codecs=avc1.42E01E",
+    "video/mp4",
+    "video/webm;codecs=vp9",
+    "video/webm",
+  ];
+  const mimeType = mimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("This browser cannot encode MP4 or WebM. Try Chrome or Edge.");
+  }
+  let rec: MediaRecorder;
+  try {
+    rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("The browser could not start the video encoder. Try Chrome or Edge.");
+  }
+  const chunks: BlobPart[] = [];
+  const done = new Promise<Blob>((resolve, reject) => {
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    rec.onstop = () => {
+      if (chunks.length === 0) {
+        reject(new Error("The browser produced an empty video. Try another preset or browser."));
+        return;
+      }
+      resolve(new Blob(chunks, { type: rec.mimeType || mimeType }));
+    };
+    rec.onerror = () =>
+      reject(new Error("The browser video encoder failed. Try a shorter project or another preset."));
+  });
 
   const frameMs = 1000 / FPS;
   const renderSceneFrame = (
@@ -290,47 +320,67 @@ export async function exportVideoProject(
     scene: (typeof tl)[number]["scene"],
     localT: number,
   ) => {
+    target.save();
+    target.setTransform(1, 0, 0, 1, 0, 0);
     target.fillStyle = scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
+    target.setTransform(
+      viewport.scale,
+      0,
+      0,
+      viewport.scale,
+      viewport.offsetX,
+      viewport.offsetY,
+    );
     for (const o of scene.objects) drawObject(target, sprites, o, localT);
+    target.restore();
   };
 
-  for (let f = 0; f < totalFrames; f++) {
-    const tMs = Math.min(totalMs, (f * 1000) / FPS);
-    // Active scene: later scene wins during crossfade overlap.
-    let segIdx = tl.length - 1;
-    for (let i = tl.length - 1; i >= 0; i--) {
-      if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
-        segIdx = i;
-        break;
+  try {
+    rec.start(200);
+
+    for (let f = 0; f < totalFrames; f++) {
+      const tMs = Math.min(totalMs, (f * 1000) / FPS);
+      // Active scene: later scene wins during crossfade overlap.
+      let segIdx = tl.length - 1;
+      for (let i = tl.length - 1; i >= 0; i--) {
+        if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
+          segIdx = i;
+          break;
+        }
       }
-    }
-    const seg = tl[segIdx];
-    const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
+      const seg = tl[segIdx];
+      const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
 
-    // Fade: cross-dissolve with the previous scene over the overlap.
-    const alpha = transitionAlpha(project, tMs);
-    if (segIdx > 0 && alpha < 1) {
-      const prev = tl[segIdx - 1];
-      const prevLocal = Math.min(
-        prev.scene.durationMs,
-        tMs - prev.startMs,
-      );
-      renderSceneFrame(sctx, prev.scene, Math.max(0, prevLocal));
-      ctx.globalAlpha = 1;
-      ctx.drawImage(sceneCanvas, 0, 0);
-      renderSceneFrame(sctx, seg.scene, localT);
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(sceneCanvas, 0, 0);
-      ctx.globalAlpha = 1;
-    } else {
-      renderSceneFrame(ctx, seg.scene, localT);
+      // Fade: cross-dissolve with the previous scene over the overlap.
+      const alpha = transitionAlpha(project, tMs);
+      if (segIdx > 0 && alpha < 1) {
+        const prev = tl[segIdx - 1];
+        const prevLocal = Math.min(
+          prev.scene.durationMs,
+          tMs - prev.startMs,
+        );
+        renderSceneFrame(sctx, prev.scene, Math.max(0, prevLocal));
+        ctx.globalAlpha = 1;
+        ctx.drawImage(sceneCanvas, 0, 0);
+        renderSceneFrame(sctx, seg.scene, localT);
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(sceneCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+      } else {
+        renderSceneFrame(ctx, seg.scene, localT);
+      }
+
+      onProgress?.((f + 1) / totalFrames);
+      await new Promise((r) => setTimeout(r, frameMs));
     }
 
-    onProgress?.((f + 1) / totalFrames);
-    await new Promise((r) => setTimeout(r, frameMs));
+    rec.stop();
+    return await done;
+  } catch (error) {
+    if (rec.state !== "inactive") rec.stop();
+    throw error;
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
   }
-
-  rec.stop();
-  return done;
 }

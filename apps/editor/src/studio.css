@@ -10,6 +10,7 @@
   --accent2: #4c7dd9;
   --danger: #e0685c;
   --radius: 10px;
+  --overlay: rgba(0, 0, 0, 0.64);
 }
 
 * { box-sizing: border-box; }
@@ -74,6 +75,21 @@ input[type="range"] { accent-color: var(--accent); }
 }
 .topbar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .topbar-status { font-size: 12px; color: var(--muted); }
+.export-overlay {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: var(--overlay);
+}
+.export-dialog {
+  width: min(440px, 100%);
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px;
+}
+.export-dialog select { width: 100%; }
+.export-progress { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.export-progress progress { width: 100%; accent-color: var(--accent); }
+.export-status { margin-top: 12px; font-size: 13px; }
+.export-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 /* Main layout */
 .studio-main {
