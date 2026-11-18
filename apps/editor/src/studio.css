@@ -166,6 +166,11 @@ input[type="range"] { accent-color: var(--accent); }
 .seg { display: flex; gap: 4px; }
 .seg button.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .color-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.effect-preset-select { flex: 1; min-width: 120px; }
+.effect-item { border-top: 1px solid var(--line); padding: 8px 0; }
+.effect-heading, .effect-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.effect-options { margin-top: 8px; flex-wrap: wrap; }
+.effect-heading button { padding: 3px 8px; }
 .wp-row {
   display: grid; grid-template-columns: 24px 1fr 1fr 1fr auto; gap: 4px; align-items: end;
   font-size: 12px; margin-bottom: 6px; padding: 6px;

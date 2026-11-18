@@ -11,6 +11,8 @@ Last updated 2026-11-18 (Phase 0 bootstrap). Source of truth for layout, schema,
 ## Project schema
 One versioned JSON document per project (schema.ts): scenes with timed elements (footage, character, image, text, chart, shape, audio), dialogue lines with voice bindings and reserved word timings, global music, caption tracks, cue markers (OCF knowledge checks and branching), snapshots for non-destructive versioning. Assets are R2 keys only, never bytes and never viewer identity.
 
+Scene and object effects are named presets in the shared animation engine. The Studio schema mirrors these presets, which expand to timeline tracks at render time. The editor exposes preset, delay, and duration controls only.
+
 ## State patterns
 - The editor store owns the open project; components never mutate project JSON directly.
 - Undo is one stack across scene and timeline edits.

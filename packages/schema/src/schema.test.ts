@@ -12,6 +12,7 @@ function sampleProject(): StudioProject {
   const p = makeStudioProject("Demo");
   const s1 = p.scenes[0];
   s1.durationMs = 6000;
+  s1.effects = [{ name: "fadeIn", start: 100, duration: 400 }];
   s1.elements.push(
     {
       kind: "footage", id: "el-1", startMs: 0, durationMs: 6000,
@@ -21,6 +22,7 @@ function sampleProject(): StudioProject {
     {
       kind: "text", id: "el-2", startMs: 500, durationMs: 3000,
       text: "Hello", x: 10, y: 20, w: 300, h: 60,
+      effects: [{ name: "emphasisPulse", start: 900, duration: 350 }],
     },
     {
       kind: "chart", id: "el-3", startMs: 0, durationMs: 4000,
@@ -89,5 +91,9 @@ describe("OCF mapping", () => {
     expect(validateStudioProject(back)).toEqual([]);
     expect(back.scenes[0].elements.some((e) => e.kind === "footage")).toBe(true);
     expect(back.scenes[0].elements.some((e) => e.kind === "chart")).toBe(false);
+    expect(back.scenes[0].effects).toEqual([{ name: "fadeIn", start: 100, duration: 400 }]);
+    expect(back.scenes[0].elements.find((e) => e.id === "el-2")?.effects).toEqual([
+      { name: "emphasisPulse", start: 900, duration: 350 },
+    ]);
   });
 });

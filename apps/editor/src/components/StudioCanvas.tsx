@@ -9,7 +9,11 @@ import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import type { CharacterObject } from "@finch-studio/core";
 import { useStudioStore, useCurrentScene, useSelectedObject } from "../store";
 import { StudioObjectRenderer } from "./StudioObjectRenderer";
-import { SceneTimeContext } from "@finch-studio/animation";
+import {
+  mergeAnimatedStyle,
+  SceneTimeContext,
+  timelineStyleFor,
+} from "@finch-studio/animation";
 
 export const SCENE_W = 1280;
 export const SCENE_H = 720;
@@ -53,6 +57,15 @@ export function StudioCanvas({
   };
 
   if (!scene) return <div className="studio-canvas-empty">No scene</div>;
+  const stageStyle = {
+    width: SCENE_W,
+    height: SCENE_H,
+    transform: `scale(${scale})`,
+    transformOrigin: "top left",
+    background: scene.background ?? "#ffffff",
+  };
+  const animatedStageStyle =
+    tMs === null ? stageStyle : mergeAnimatedStyle(stageStyle, timelineStyleFor(scene.animations, tMs));
 
   return (
     <div className="studio-canvas-wrap" ref={wrapRef}>
@@ -61,13 +74,7 @@ export function StudioCanvas({
       >
         <div
           className={`studio-stage${pathEdit ? " path-edit" : ""}`}
-          style={{
-            width: SCENE_W,
-            height: SCENE_H,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-            background: scene.background ?? "#ffffff",
-          }}
+          style={animatedStageStyle}
           onClick={onStageClick}
         >
           <SceneTimeContext.Provider value={tMs}>
@@ -76,16 +83,20 @@ export function StudioCanvas({
               .map((o) => {
                 const pos = o.position ?? {};
                 const isSel = o.id === selected?.id;
+                const objectStyle = {
+                  left: pos.x ?? 0,
+                  top: pos.y ?? 0,
+                  width: pos.w ?? 200,
+                  height: pos.h ?? 100,
+                };
                 return (
                   <div
                     key={o.id}
                     className={`studio-obj${isSel ? " selected" : ""}`}
-                    style={{
-                      left: pos.x ?? 0,
-                      top: pos.y ?? 0,
-                      width: pos.w ?? 200,
-                      height: pos.h ?? 100,
-                    }}
+                    style={mergeAnimatedStyle(
+                      objectStyle,
+                      tMs === null ? {} : timelineStyleFor(o.animations, tMs),
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!pathEdit) selectObject(o.id);

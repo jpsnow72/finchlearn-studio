@@ -52,6 +52,14 @@ describe("scenes", () => {
     expect(scene.name).toBe("Intro");
     expect(scene.durationMs).toBe(8000);
   });
+
+  it("stores scene effects", () => {
+    const s = useStudioStore.getState();
+    const id = s.project.scenes[0].id;
+    const effects = [{ name: "fadeIn" as const, start: 150, duration: 700 }];
+    s.setScenePresets(id, effects);
+    expect(useStudioStore.getState().project.scenes[0].animations?.presets).toEqual(effects);
+  });
 });
 
 describe("objects", () => {
@@ -78,6 +86,20 @@ describe("objects", () => {
       expect(obj.facing).toBe("left");
       expect(obj.colors?.shirt).toBe("#ff0000");
     }
+  });
+
+  it("stores effects on the selected object without losing other animation data", () => {
+    const s = useStudioStore.getState();
+    const char = makeStudioCharacter("student");
+    s.addObject(char);
+    s.updateObject(char.id, {
+      animations: { timeline: [{ property: "x", from: 0, to: 10 }] },
+    });
+    const effects = [{ name: "wipeInLeft" as const, start: 100, duration: 500 }];
+    useStudioStore.getState().setObjectPresets(char.id, effects);
+    const object = useStudioStore.getState().project.scenes[0].objects[0];
+    expect(object.animations?.presets).toEqual(effects);
+    expect(object.animations?.timeline).toHaveLength(1);
   });
 
   it("manages waypoints", () => {
