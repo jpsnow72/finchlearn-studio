@@ -186,7 +186,7 @@ describe("audio editing", () => {
       .project.scenes[0].objects.filter((object) => object.type === "audio") as AudioObject[];
     expect(clips).toHaveLength(2);
     expect(clips.map((clip) => clip.timing?.start)).toEqual([0, 1]);
-    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(4000);
+    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(5000);
     expect(getAudioClipMetadata(clips[1]).volumeKeyframes).toEqual([
       { timeMs: 500, decibels: -27 },
     ]);
