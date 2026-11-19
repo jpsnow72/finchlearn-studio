@@ -10,6 +10,7 @@ import { studioToOCF, ocfToStudio } from "./ocfMapping.js";
 
 function sampleProject(): StudioProject {
   const p = makeStudioProject("Demo");
+  p.sceneGroupPresetRefs = ["group-preset-1"];
   const s1 = p.scenes[0];
   s1.durationMs = 6000;
   s1.effects = [{ name: "fadeIn", start: 100, duration: 400 }];

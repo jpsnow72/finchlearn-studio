@@ -6,6 +6,7 @@
  * Placing an image stamps its provenance credit onto the object name.
  */
 import { useRef, useState } from "react";
+import type { CourseObject } from "@finch-studio/core";
 import type { MediaAsset } from "@finch-studio/media";
 import { useStudioStore, makeStudioImage } from "../store";
 
@@ -27,11 +28,29 @@ interface UserItem {
   hash: string;
 }
 
+interface SceneGroupPreset {
+  id: string;
+  name: string;
+  objects: CourseObject[];
+}
+
 const LS_KEY = "finch-studio.user-media";
+const GROUPS_KEY = "finch-studio.user-scene-groups";
 
 function loadUserItems(): UserItem[] {
   try {
     return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]") as UserItem[];
+  } catch {
+    return [];
+  }
+}
+
+function loadSceneGroups(): SceneGroupPreset[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "[]") as SceneGroupPreset[];
+    return Array.isArray(stored)
+      ? stored.filter((group) => group && typeof group.name === "string" && Array.isArray(group.objects))
+      : [];
   } catch {
     return [];
   }
@@ -47,11 +66,42 @@ async function hashOf(text: string): Promise<string> {
 }
 
 export function MediaPanel() {
+  const project = useStudioStore((s) => s.project);
+  const currentSceneId = useStudioStore((s) => s.currentSceneId);
+  const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addObject = useStudioStore((s) => s.addObject);
-  const [tab, setTab] = useState<"stock" | "unsplash" | "mine">("stock");
+  const insertObjectGroup = useStudioStore((s) => s.insertObjectGroup);
+  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "groups">("stock");
   const [mine, setMine] = useState<UserItem[]>(loadUserItems);
+  const [groups, setGroups] = useState<SceneGroupPreset[]>(loadSceneGroups);
+  const [groupName, setGroupName] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
   const [note, setNote] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const scene = project.scenes.find((item) => item.id === currentSceneId);
+  const selectedObjects = scene?.objects.filter((object) => selectedObjectIds.includes(object.id)) ?? [];
+
+  const persistGroups = (next: SceneGroupPreset[]) => {
+    setGroups(next);
+    try {
+      localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
+    } catch {
+      setNote("Saved group is available for this session only (browser storage full).");
+    }
+  };
+
+  const saveSelectedGroup = () => {
+    if (selectedObjects.length === 0) return;
+    const name = groupName.trim() || `Scene group ${groups.length + 1}`;
+    const preset: SceneGroupPreset = {
+      id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      objects: JSON.parse(JSON.stringify(selectedObjects)) as CourseObject[],
+    };
+    persistGroups([preset, ...groups]);
+    setGroupName("");
+    setNote(`Saved "${name}" to your library.`);
+  };
 
   const place = (asset: MediaAsset) => {
     if (!asset.remoteUrl) return;
@@ -84,6 +134,11 @@ export function MediaPanel() {
   };
 
   const items = tab === "stock" ? SAMPLE_STOCK : tab === "unsplash" ? SAMPLE_UNSPLASH : [];
+  const matchingGroups = groups.filter((group) => {
+    const query = groupSearch.trim().toLowerCase();
+    return !query || [group.name, ...group.objects.flatMap((object) => [object.name ?? "", object.type])]
+      .some((value) => value.toLowerCase().includes(query));
+  });
 
   return (
     <div className="panel">
@@ -92,8 +147,9 @@ export function MediaPanel() {
         <button type="button" className={tab === "stock" ? "active" : ""} onClick={() => setTab("stock")}>Finch Stock</button>
         <button type="button" className={tab === "unsplash" ? "active" : ""} onClick={() => setTab("unsplash")}>Unsplash</button>
         <button type="button" className={tab === "mine" ? "active" : ""} onClick={() => setTab("mine")}>My media</button>
+        <button type="button" className={tab === "groups" ? "active" : ""} onClick={() => setTab("groups")}>Groups</button>
       </div>
-      {tab !== "mine" ? (
+      {tab === "stock" || tab === "unsplash" ? (
         <div className="media-grid">
           {items.map((a) => (
             <button key={a.id} type="button" className="media-thumb" onClick={() => place(a)} title={a.credit ?? a.name}>
@@ -102,7 +158,7 @@ export function MediaPanel() {
             </button>
           ))}
         </div>
-      ) : (
+      ) : tab === "mine" ? (
         <div>
           <div className="media-grid">
             {mine.map((m) => (
@@ -130,6 +186,45 @@ export function MediaPanel() {
               e.target.value = "";
             }}
           />
+        </div>
+      ) : (
+        <div>
+          <div className="lib-row">
+            <input
+              type="text"
+              placeholder="Name this group"
+              aria-label="Saved group name"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+            />
+            <button type="button" onClick={saveSelectedGroup} disabled={selectedObjects.length === 0}>
+              Save {selectedObjects.length || ""} selected
+            </button>
+          </div>
+          <input
+            type="search"
+            placeholder="Search saved groups"
+            aria-label="Search saved groups"
+            value={groupSearch}
+            onChange={(e) => setGroupSearch(e.target.value)}
+          />
+          <div className="scene-group-list">
+            {matchingGroups.map((group) => (
+              <div key={group.id} className="lib-snap">
+                <span>{group.name} <span className="muted">{group.objects.length} objects</span></span>
+                <span>
+                  <button type="button" onClick={() => {
+                    insertObjectGroup(group.objects);
+                    setNote(`Added "${group.name}" to the scene.`);
+                  }}>Insert</button>
+                  <button type="button" onClick={() => persistGroups(groups.filter((item) => item.id !== group.id))}>Delete</button>
+                </span>
+              </div>
+            ))}
+            {matchingGroups.length === 0 && (
+              <p className="muted">{groups.length === 0 ? "No saved groups yet. Shift-click objects on stage to select more than one." : "No groups match your search."}</p>
+            )}
+          </div>
         </div>
       )}
       {note && <p className="muted">{note}</p>}

@@ -41,6 +41,7 @@ import { STUDIO_SCHEMA_VERSION } from "./schema.js";
 export interface StudioSidecar {
   /** Full studio scenes, keyed by scene id, for lossless restore. */
   scenes: Record<string, StudioScene>;
+  sceneGroupPresetRefs?: StudioProject["sceneGroupPresetRefs"];
   brandKitRef?: string;
   captions?: StudioProject["captions"];
   globalMusic?: StudioProject["globalMusic"];
@@ -113,6 +114,7 @@ export function studioToOCF(project: StudioProject): {
 } {
   const sidecar: StudioSidecar = {
     scenes: {},
+    sceneGroupPresetRefs: project.sceneGroupPresetRefs,
     brandKitRef: project.brandKitRef,
     captions: project.captions,
     globalMusic: project.globalMusic,
@@ -228,6 +230,7 @@ export function ocfToStudio(
     id: project.id,
     name: project.name,
     scenes,
+    sceneGroupPresetRefs: sidecar?.sceneGroupPresetRefs,
     brandKitRef: sidecar?.brandKitRef,
     captions: sidecar?.captions,
     globalMusic: sidecar?.globalMusic,

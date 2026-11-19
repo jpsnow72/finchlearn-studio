@@ -153,6 +153,7 @@ export interface StudioProject {
   id: string;
   name: string;
   scenes: StudioScene[];
+  sceneGroupPresetRefs?: string[];
   globalMusic?: { asset: AssetRef; volume: number };
   captions?: CaptionTrack[];
   brandKitRef?: string;

@@ -9,6 +9,7 @@ import {
   snapTimelineTime,
   useStudioStore,
   makeStudioCharacter,
+  makeStudioShape,
 } from "../store.js";
 
 beforeEach(() => {
@@ -133,6 +134,40 @@ describe("objects", () => {
     const st = useStudioStore.getState();
     expect(st.project.scenes[0].objects).toHaveLength(1);
     expect(st.selectedObjectId).toBe(char.id);
+    expect(st.selectedObjectIds).toEqual([char.id]);
+  });
+
+  it("saves selected objects for insertion into another project with motion and effects intact", () => {
+    const store = useStudioStore.getState();
+    const character = makeStudioCharacter("student");
+    character.animations = {
+      presets: [{ name: "fadeIn", start: 150, duration: 700 }],
+      timeline: [{ property: "x", from: 0, to: 80, start: 0, duration: 1200 }],
+    };
+    character.path = [{ x: 120, y: 240, t: 0 }, { x: 360, y: 240, t: 1800 }];
+    const shape = makeStudioShape();
+    shape.animations = { presets: [{ name: "zoomIn", start: 250, duration: 500 }] };
+    store.addObject(character);
+    store.addObject(shape);
+    useStudioStore.getState().selectObject(character.id);
+    useStudioStore.getState().selectObject(shape.id, true);
+
+    const sourceObjects = useStudioStore.getState().project.scenes[0].objects
+      .filter((object) => useStudioStore.getState().selectedObjectIds.includes(object.id));
+    expect(useStudioStore.getState().selectedObjectIds).toEqual([character.id, shape.id]);
+
+    useStudioStore.getState().newProject();
+    const initialObjectCount = useStudioStore.getState().project.scenes[0].objects.length;
+    useStudioStore.getState().insertObjectGroup(sourceObjects);
+
+    const inserted = useStudioStore.getState().project.scenes[0].objects.slice(initialObjectCount);
+    expect(inserted).toHaveLength(2);
+    expect(inserted.map((object) => object.id)).not.toContain(character.id);
+    expect(inserted.map((object) => object.id)).not.toContain(shape.id);
+    expect(inserted[0].animations).toEqual(character.animations);
+    expect(inserted[0].type === "character" && inserted[0].path).toEqual(character.path);
+    expect(inserted[1].animations).toEqual(shape.animations);
+    expect(useStudioStore.getState().selectedObjectIds).toEqual(inserted.map((object) => object.id));
   });
 
   it("edits character animation, facing, colors", () => {
