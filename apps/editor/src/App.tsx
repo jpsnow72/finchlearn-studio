@@ -24,6 +24,7 @@ import { AudioPanel } from "./components/AudioPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
+import { CaptionsPanel } from "./components/CaptionsPanel";
 import { Timeline } from "./components/Timeline";
 import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId } from "./store";
 import { narrationTts } from "./narrationProvider";
@@ -41,7 +42,7 @@ export function App() {
   const redo = useStudioStore((s) => s.redo);
 
   const [pathEdit, setPathEdit] = useState(false);
-  const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | null>("characters");
+  const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | "captions" | null>("characters");
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
   const dialogueRef = useRef(new DialoguePlayer({ provider: narrationTts }));
 
@@ -185,6 +186,7 @@ export function App() {
           <button type="button" className={flyout === "media" ? "active" : ""} onClick={() => setFlyout(flyout === "media" ? null : "media")} title="Media library">🖼️</button>
           <button type="button" className={flyout === "templates" ? "active" : ""} onClick={() => setFlyout(flyout === "templates" ? null : "templates")} title="Templates">📐</button>
           <button type="button" className={flyout === "script" ? "active" : ""} onClick={() => setFlyout(flyout === "script" ? null : "script")} title="Script import">📜</button>
+          <button type="button" className={flyout === "captions" ? "active" : ""} onClick={() => setFlyout(flyout === "captions" ? null : "captions")} title="Captions" aria-label="Captions">CC</button>
         </nav>
         {flyout && (
           <aside className="studio-left studio-flyout">
@@ -200,6 +202,7 @@ export function App() {
             {flyout === "media" && <MediaPanel />}
             {flyout === "templates" && <TemplatesPanel />}
             {flyout === "script" && <ScriptImport />}
+            {flyout === "captions" && <CaptionsPanel />}
           </aside>
         )}
         <main className="studio-center">

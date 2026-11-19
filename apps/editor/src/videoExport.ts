@@ -43,6 +43,7 @@ import {
 import { timelineClipRange, timelineLaneForObject, characterVoiceId } from "./store";
 import { getAudioClipMetadata } from "./audioEditing";
 import { ensureLineAudio } from "./narration";
+import { getCaptionAt, getCaptionStyle } from "./captions";
 import { getRenderViewport } from "./exportPresets";
 import type { AudioObject } from "@finch-studio/core";
 
@@ -395,29 +396,26 @@ export async function buildProjectAudio(project: VideoProject): Promise<AudioBuf
   return ctx.startRendering();
 }
 
-/** Burned in captions: the active dialogue line, bottom centre. */
+/** Burned in captions use the project caption list and its global style. */
 function drawCaptionOverlay(
   ctx: CanvasRenderingContext2D,
-  scene: { objects: CourseObject[] },
+  project: VideoProject,
+  scene: { id: string; objects: CourseObject[] },
   localT: number,
   width: number,
   height: number,
 ): void {
-  let text = "";
-  for (const o of scene.objects) {
-    if (o.type !== "character") continue;
-    const line = ((o as CharacterObject).speech ?? []).find(
-      (sp) => localT >= sp.start && localT < sp.start + sp.duration,
-    );
-    if (line?.text) {
-      text = line.text;
-      break;
-    }
-  }
+  const text = getCaptionAt(project, scene.id, localT) ?? "";
   if (!text) return;
-  const fontPx = Math.max(18, Math.round(height * 0.032));
+  const style = getCaptionStyle(project);
+  const fontFamily = style.font === "serif"
+    ? "Georgia, serif"
+    : style.font === "monospace"
+      ? "ui-monospace, monospace"
+      : "system-ui, sans-serif";
+  const fontPx = Math.max(12, Math.round(style.size * height / 720));
   ctx.save();
-  ctx.font = `${fontPx}px system-ui, sans-serif`;
+  ctx.font = `${fontPx}px ${fontFamily}`;
   const maxW = width * 0.84;
   const words = text.split(/\s+/);
   const lines: string[] = [];
@@ -435,7 +433,12 @@ function drawCaptionOverlay(
   const boxH = shown.length * lineH + 16;
   const boxW = Math.min(maxW, Math.max(...shown.map((l) => ctx.measureText(l).width))) + 28;
   const bx = (width - boxW) / 2;
-  const by = height - boxH - Math.round(height * 0.045);
+  const margin = Math.round(height * 0.045);
+  const by = style.position === "top"
+    ? margin
+    : style.position === "center"
+      ? (height - boxH) / 2
+      : height - boxH - margin;
   ctx.fillStyle = "rgba(0,0,0,0.72)";
   ctx.beginPath();
   ctx.roundRect(bx, by, boxW, boxH, 8);
@@ -647,7 +650,7 @@ export async function exportVideoProject(
       } else {
         renderSceneFrame(ctx, seg.scene, localT);
       }
-      if (options.captions) drawCaptionOverlay(ctx, seg.scene, localT, width, height);
+      if (options.captions) drawCaptionOverlay(ctx, project, seg.scene, localT, width, height);
 
       onProgress?.((f + 1) / totalFrames);
       await new Promise((r) => setTimeout(r, frameMs));
@@ -813,7 +816,7 @@ export async function exportMp4Project(
     } else {
       renderSceneFrame(ctx, seg.scene, localT);
     }
-    if (options.captions) drawCaptionOverlay(ctx, seg.scene, localT, width, height);
+    if (options.captions) drawCaptionOverlay(ctx, project, seg.scene, localT, width, height);
     await source.add(f / FPS, 1 / FPS);
     onProgress?.((f + 1) / totalFrames);
   }

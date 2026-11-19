@@ -7,6 +7,13 @@ import {
   getExportPreset,
   getRenderViewport,
 } from "../exportPresets";
+import {
+  captionEditKey,
+  getCaptionAt,
+  getCaptionCues,
+  getCaptionStyle,
+  type CaptionProject,
+} from "../captions";
 
 function speechScene(
   name: string,
@@ -66,6 +73,42 @@ describe("export presets", () => {
     );
     expect(formatCaptions(project, "vtt")).toBe(
       "WEBVTT\n\n1\n00:00:01.500 --> 00:00:02.500\nHello\n\n2\n00:00:04.000 --> 00:00:04.500\nNext.\n",
+    );
+  });
+
+  it("uses editable caption text and timing for sidecar exports", () => {
+    const project: CaptionProject = {
+      id: "project",
+      name: "Course",
+      scenes: [speechScene("one", [
+        { id: "line-1", text: "Narration text", start: 1000, duration: 2000 },
+      ])],
+      extensions: {
+        "x-finch-studio": {
+          captionEdits: {
+            [captionEditKey("one", "line-1")]: {
+              text: "Caption text",
+              startMs: 1500,
+              durationMs: 800,
+            },
+          },
+          captionStyle: { font: "serif", size: 40, position: "top" },
+        },
+      },
+    };
+
+    expect(getCaptionCues(project)).toMatchObject([
+      { text: "Caption text", startMs: 1500, durationMs: 800 },
+    ]);
+    expect(getCaptionAt(project, "one", 2000)).toBe("Caption text");
+    expect(getCaptionAt(project, "one", 2400)).toBeUndefined();
+    expect(getCaptionStyle(project)).toEqual({
+      font: "serif",
+      size: 40,
+      position: "top",
+    });
+    expect(formatCaptions(project, "srt")).toBe(
+      "1\n00:00:01,500 --> 00:00:02,300\nCaption text",
     );
   });
 

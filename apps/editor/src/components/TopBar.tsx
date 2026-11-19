@@ -13,6 +13,8 @@ import {
   type ExportPresetId,
 } from "../exportPresets";
 
+type CaptionOutput = "burn-in" | "srt" | "vtt" | "none";
+
 export function TopBar() {
   const project = useStudioStore((s) => s.project);
   const embedObjectId = useStudioStore((s) => s.embedObjectId);
@@ -26,11 +28,32 @@ export function TopBar() {
   const [status, setStatus] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [presetId, setPresetId] = useState<ExportPresetId>("lms");
-  const [burnCaptions, setBurnCaptions] = useState(true);
+  const [captionOutput, setCaptionOutput] = useState<CaptionOutput>("burn-in");
   const [progress, setProgress] = useState(0);
+
+  const downloadSidecar = (format: "srt" | "vtt", baseName: string) => {
+    const content = formatCaptions(project, format);
+    const hasCues = format === "vtt"
+      ? content.replace(/^WEBVTT\s*/, "").trim().length > 0
+      : content.trim().length > 0;
+    if (!hasCues) {
+      throw new Error("No captions were found. Add narration, then export captions again.");
+    }
+    const mimeType = format === "vtt" ? "text/vtt" : "application/x-subrip";
+    downloadBlob(new Blob([content], { type: mimeType }), `${baseName}.${format}`);
+    setStatus(`${format.toUpperCase()} captions downloaded.`);
+  };
 
   const doExport = async () => {
     const preset = getExportPreset(presetId);
+    if (
+      preset.kind !== "captions" &&
+      (captionOutput === "srt" || captionOutput === "vtt") &&
+      !formatCaptions(project, captionOutput).replace(/^WEBVTT\s*/, "").trim()
+    ) {
+      setStatus("Export failed. No captions were found. Add narration, then export captions again.");
+      return;
+    }
     setBusy(true);
     setProgress(0);
     try {
@@ -42,27 +65,18 @@ export function TopBar() {
         throw new Error("Audio-only rendering is not available in this client. Choose a video preset instead.");
       }
       if (preset.kind === "captions") {
-        const content = formatCaptions(project, preset.captionFormat!);
-        const hasCues = preset.captionFormat === "vtt"
-          ? content.replace(/^WEBVTT\s*/, "").trim().length > 0
-          : content.trim().length > 0;
-        if (!hasCues) {
-          throw new Error("No character speech was found. Add speech to a character, then export captions again.");
-        }
-        const mimeType = preset.captionFormat === "vtt" ? "text/vtt" : "application/x-subrip";
-        downloadBlob(
-          new Blob([content], { type: mimeType }),
-          `${baseName}.${preset.captionFormat}`,
-        );
-        setStatus(`${preset.captionFormat!.toUpperCase()} captions downloaded.`);
+        downloadSidecar(preset.captionFormat!, baseName);
       } else if (preset.kind === "mp4") {
         const blob = await exportMp4Project(
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
-          { captions: burnCaptions },
+          { captions: captionOutput === "burn-in" },
         );
         downloadBlob(blob, `${baseName}.mp4`);
+        if (captionOutput === "srt" || captionOutput === "vtt") {
+          downloadSidecar(captionOutput, baseName);
+        }
         await saveToLibrary(blob, baseName, "MP4");
       } else {
         setStatus("Rendering in real time. Keep this tab in front until it finishes.");
@@ -70,10 +84,13 @@ export function TopBar() {
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
-          { captions: burnCaptions },
+          { captions: captionOutput === "burn-in" },
         );
         const extension = blob.type.includes("mp4") ? "mp4" : "webm";
         downloadBlob(blob, `${baseName}.${extension}`);
+        if (captionOutput === "srt" || captionOutput === "vtt") {
+          downloadSidecar(captionOutput, baseName);
+        }
         await saveToLibrary(blob, baseName, extension.toUpperCase());
       }
     } catch (err) {
@@ -89,16 +106,26 @@ export function TopBar() {
       setStatus("Server rendering produces MP4. Choose a video preset first.");
       return;
     }
+    if (
+      (captionOutput === "srt" || captionOutput === "vtt") &&
+      !formatCaptions(project, captionOutput).replace(/^WEBVTT\s*/, "").trim()
+    ) {
+      setStatus("No captions were found. Add narration, then export captions again.");
+      return;
+    }
     setBusy(true);
     try {
       const baseName = exportFileBaseName(project.name || "video");
       const blob = await requestServerRender(
         project,
         { width: preset.width ?? 1280, height: preset.height ?? 720 },
-        burnCaptions,
+        captionOutput === "burn-in",
         setStatus,
       );
       downloadBlob(blob, `${baseName}.mp4`);
+      if (captionOutput === "srt" || captionOutput === "vtt") {
+        downloadSidecar(captionOutput, baseName);
+      }
       await saveToLibrary(blob, baseName, "MP4");
     } catch (err) {
       setStatus(`Server render failed. ${err instanceof Error ? err.message : String(err)}`);
@@ -228,18 +255,26 @@ export function TopBar() {
                   <option key={preset.id} value={preset.id}>{preset.label}</option>
                 ))}
               </select>
-              <label className="export-captions">
-                <input
-                  type="checkbox"
-                  checked={burnCaptions}
-                  onChange={(e) => setBurnCaptions(e.target.checked)}
-                />
-                Burn in captions
-              </label>
             </label>
+            {getExportPreset(presetId).kind !== "captions" && (
+              <label className="field">
+                Caption output
+                <select
+                  value={captionOutput}
+                  onChange={(event) => setCaptionOutput(event.target.value as CaptionOutput)}
+                  disabled={busy}
+                >
+                  <option value="burn-in">Burn in on video</option>
+                  <option value="srt">Download SRT sidecar</option>
+                  <option value="vtt">Download VTT sidecar</option>
+                  <option value="none">No captions</option>
+                </select>
+              </label>
+            )}
             <p className="muted small">
               Video downloads use MP4 when supported by your browser, otherwise WebM.
               GIF and audio-only encoding are not available in this client.
+              Choose burn-in, an SRT or VTT sidecar, or no captions.
               Signed in? Finished videos also save to your media library.
               Server rendering suits long or 1080p projects: our server does
               the heavy lifting and finishes the audio loudness for you.

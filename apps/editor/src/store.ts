@@ -32,6 +32,15 @@ import {
   withAudioClipMetadata,
   type AudioClipMetadata,
 } from "./audioEditing";
+import {
+  copyCaptionEditsForScene,
+  getCaptionCues,
+  withCaptionEdit,
+  withCaptionStyle,
+  type CaptionEdit,
+  type CaptionProject,
+  type CaptionStyle,
+} from "./captions";
 import { characterForLegacyId } from "@finch-studio/characters";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
@@ -193,10 +202,10 @@ interface TimelineClipPatch {
 }
 
 interface VideoStudioState {
-  project: VideoProject;
-  pastProjects: VideoProject[];
-  futureProjects: VideoProject[];
-  timelineEditOrigin: VideoProject | null;
+  project: CaptionProject;
+  pastProjects: CaptionProject[];
+  futureProjects: CaptionProject[];
+  timelineEditOrigin: CaptionProject | null;
   currentSceneId: string;
   selectedObjectId: string | null;
   selectedObjectIds: string[];
@@ -211,6 +220,8 @@ interface VideoStudioState {
   undo: () => void;
   redo: () => void;
   setProjectName: (name: string) => void;
+  updateCaption: (sceneId: string, lineId: string, patch: CaptionEdit) => void;
+  setCaptionStyle: (patch: Partial<CaptionStyle>) => void;
   // scenes
   addScene: () => void;
   duplicateScene: (id: string) => void;
@@ -283,7 +294,7 @@ function asCharacter(o: CourseObject): CharacterObject | null {
   return o.type === "character" ? (o as CharacterObject) : null;
 }
 
-function deriveProjectDurations(project: VideoProject): VideoProject {
+function deriveProjectDurations(project: CaptionProject): CaptionProject {
   return {
     ...project,
     scenes: project.scenes.map((scene) => ({
@@ -432,14 +443,16 @@ function rippleObjects(
 }
 
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
-  const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
+  const initial = deriveProjectDurations(
+    (loadStored() ?? makeVideoProject("Untitled video")) as CaptionProject,
+  );
   const params =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
       : null;
   const embedObjectId: string | null = params?.get("embed") ?? null;
 
-  const commit = (project: VideoProject) => {
+  const commit = (project: CaptionProject) => {
     const state = get();
     const previous = state.project;
     if (project === previous) return;
@@ -470,7 +483,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     embedObjectId,
 
     loadProject: (p) => {
-      const project = deriveProjectDurations(p);
+      const project = deriveProjectDurations(p as CaptionProject);
       set({
         project,
         pastProjects: [],
@@ -484,7 +497,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
 
     newProject: () => {
-      const project = deriveProjectDurations(makeVideoProject("Untitled video"));
+      const project = deriveProjectDurations(makeVideoProject("Untitled video") as CaptionProject);
       persist(project);
       set({
         project,
@@ -543,6 +556,27 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       });
     },
     setProjectName: (name) => commit({ ...get().project, name }),
+    updateCaption: (sceneId, lineId, patch) => {
+      const { project } = get();
+      const scene = project.scenes.find((item) => item.id === sceneId);
+      const cue = getCaptionCues(project).find(
+        (item) => item.sceneId === sceneId && item.lineId === lineId,
+      );
+      if (!scene || !cue) return;
+      const duration = Math.max(100, scene.durationMs);
+      const requestedStart = Number.isFinite(patch.startMs) ? patch.startMs! : cue.startMs;
+      const startMs = Math.min(duration - 100, Math.max(0, requestedStart));
+      const requestedDuration = Number.isFinite(patch.durationMs)
+        ? patch.durationMs!
+        : cue.durationMs;
+      const durationMs = Math.min(
+        duration - startMs,
+        Math.max(100, requestedDuration),
+      );
+      commit(withCaptionEdit(project, sceneId, lineId, { ...patch, startMs, durationMs }));
+    },
+    setCaptionStyle: (patch) =>
+      commit(withCaptionStyle(get().project, patch)),
 
     addScene: () => {
       const { project } = get();
@@ -569,7 +603,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       };
       const scenes = [...project.scenes];
       scenes.splice(index + 1, 0, duplicate);
-      commit({ ...project, scenes });
+      commit(copyCaptionEditsForScene({ ...project, scenes }, source, duplicate));
       set({
         currentSceneId: duplicate.id,
         selectedObjectId: null,
