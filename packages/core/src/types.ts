@@ -579,7 +579,7 @@ export interface CharacterObject extends ObjectBase {
 // ---------------------------------------------------------------------------
 
 /** Scene transition between video scenes. */
-export type VideoSceneTransition = "cut" | "fade";
+export type VideoSceneTransition = "cut" | "fade" | "slide" | "wipe" | "zoom" | "push";
 
 /**
  * One scene in a video project (SPEC §7.9, rev 25). A scene is a self-
@@ -595,7 +595,7 @@ export interface VideoScene {
   durationMs: number;
   /** Transition INTO this scene from the previous. Defaults to "cut". */
   transition?: VideoSceneTransition;
-  /** Transition duration in ms (for "fade"). Defaults to 400. */
+  /** Transition duration in ms. Defaults to 400. */
   transitionMs?: number;
   background?: string;
   objects: CourseObject[];

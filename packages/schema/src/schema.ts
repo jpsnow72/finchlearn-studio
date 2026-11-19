@@ -37,7 +37,7 @@ export interface DialogueLine {
   wordTimings?: WordTiming[];
 }
 
-export type TransitionKind = "cut" | "fade" | "slide" | "wipe";
+export type TransitionKind = "cut" | "fade" | "slide" | "wipe" | "zoom" | "push";
 
 export interface CueMarker {
   atMs: number;
