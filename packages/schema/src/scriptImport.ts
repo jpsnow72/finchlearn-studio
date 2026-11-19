@@ -20,8 +20,8 @@ import { makeStudioProject, makeStudioScene, type StudioProject } from "./schema
 const MS_PER_WORD = 800;
 const MIN_SCENE_MS = 2000;
 
-const SCENE_RE = /^\[Scene:\s*(.+?)\s*\]$/i;
-const SPEAKER_RE = /^([A-Z][A-Za-z0-9 .'-]{0,40}):\s+(.+)$/;
+const SCENE_PREFIX = "[scene:";
+const SPEAKER_NAME_RE = /^[A-Z][A-Za-z0-9 .'-]{0,40}$/;
 
 export function parseScript(script: string, projectName = "Imported script"): StudioProject {
   const project = makeStudioProject(projectName);
@@ -41,20 +41,30 @@ export function parseScript(script: string, projectName = "Imported script"): St
   for (const raw of script.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    const sceneMatch = line.match(SCENE_RE);
-    if (sceneMatch) {
+    const lowerLine = line.toLowerCase();
+    if (lowerLine.startsWith(SCENE_PREFIX) && line.endsWith("]")) {
+      const sceneName = line.slice(SCENE_PREFIX.length, -1).trim();
       if (!sceneHasContent && project.scenes.length === 1 && scene === project.scenes[0]) {
-        scene.name = sceneMatch[1];
+        scene.name = sceneName;
       } else {
-        scene = makeStudioScene(sceneMatch[1]);
+        scene = makeStudioScene(sceneName);
         project.scenes.push(scene);
       }
       sceneHasContent = true;
       continue;
     }
-    const speakerMatch = line.match(SPEAKER_RE);
-    if (speakerMatch) pushLine(speakerMatch[1], speakerMatch[2]);
-    else pushLine("Narrator", line);
+    const colon = line.indexOf(":");
+    const speaker = colon > 0 ? line.slice(0, colon) : "";
+    const afterColon = colon > 0 ? line.slice(colon + 1) : "";
+    if (
+      SPEAKER_NAME_RE.test(speaker) &&
+      /^\s/.test(afterColon) &&
+      afterColon.trimStart()
+    ) {
+      pushLine(speaker, afterColon.trimStart());
+    } else {
+      pushLine("Narrator", line);
+    }
   }
 
   for (const s of project.scenes) {

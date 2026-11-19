@@ -126,6 +126,14 @@ describe("script import (#55)", () => {
     expect(p.scenes[0].durationMs).toBeGreaterThanOrEqual(2000);
     expect(parseScript(script, "Parsed").scenes.map((s) => s.dialogue.length)).toEqual([2, 1]);
   });
+
+  it("parses long whitespace without ambiguous regular expression matching", () => {
+    const spaces = " ".repeat(100_000);
+    const p = parseScript(`[Scene:${spaces}Intro]\nNARRATOR:${spaces}Hello`);
+    expect(p.scenes).toHaveLength(1);
+    expect(p.scenes[0].name).toBe("Intro");
+    expect(p.scenes[0].dialogue[0].text).toBe("Hello");
+  });
 });
 
 describe("snapshots and reframe (#62)", () => {
