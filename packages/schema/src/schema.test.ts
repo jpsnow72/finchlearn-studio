@@ -125,6 +125,9 @@ describe("script import (#55)", () => {
     expect(p.scenes[1].dialogue[0].text).toContain("Watch this step");
     expect(p.scenes[0].durationMs).toBeGreaterThanOrEqual(2000);
     expect(parseScript(script, "Parsed").scenes.map((s) => s.dialogue.length)).toEqual([2, 1]);
+    const bracketTitle = parseScript("[Scene: A ] title]\nSAM:   Hello");
+    expect(bracketTitle.scenes[0].name).toBe("A ] title");
+    expect(bracketTitle.scenes[0].dialogue[0].text).toBe("Hello");
   });
 });
 

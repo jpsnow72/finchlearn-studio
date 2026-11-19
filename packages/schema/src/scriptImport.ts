@@ -20,8 +20,19 @@ import { makeStudioProject, makeStudioScene, type StudioProject } from "./schema
 const MS_PER_WORD = 800;
 const MIN_SCENE_MS = 2000;
 
-const SCENE_RE = /^\[Scene:\s*(.+?)\s*\]$/i;
-const SPEAKER_RE = /^([A-Z][A-Za-z0-9 .'-]{0,40}):\s+(.+)$/;
+const SCENE_PREFIX = "[scene:";
+const SPEAKER_RE = /^([A-Z][A-Za-z0-9 .'-]{0,40}):\s+(\S.*)$/;
+
+function sceneTitleFromLine(line: string): string | null {
+  if (
+    !line.endsWith("]") ||
+    line.slice(0, SCENE_PREFIX.length).toLowerCase() !== SCENE_PREFIX
+  ) {
+    return null;
+  }
+  const title = line.slice(SCENE_PREFIX.length, -1);
+  return title ? title.trim() : null;
+}
 
 export function parseScript(script: string, projectName = "Imported script"): StudioProject {
   const project = makeStudioProject(projectName);
@@ -41,12 +52,12 @@ export function parseScript(script: string, projectName = "Imported script"): St
   for (const raw of script.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    const sceneMatch = line.match(SCENE_RE);
-    if (sceneMatch) {
+    const sceneTitle = sceneTitleFromLine(line);
+    if (sceneTitle !== null) {
       if (!sceneHasContent && project.scenes.length === 1 && scene === project.scenes[0]) {
-        scene.name = sceneMatch[1];
+        scene.name = sceneTitle;
       } else {
-        scene = makeStudioScene(sceneMatch[1]);
+        scene = makeStudioScene(sceneTitle);
         project.scenes.push(scene);
       }
       sceneHasContent = true;
