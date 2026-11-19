@@ -12,16 +12,18 @@ Last updated 2026-11-18 (Phase 0 bootstrap). Source of truth for layout, schema,
 ## Project schema
 One versioned JSON document per project (schema.ts): scenes with timed elements (footage, character, image, text, chart, shape, audio), dialogue lines with voice bindings and reserved word timings, global music, caption tracks, cue markers (OCF knowledge checks and branching), snapshots for non-destructive versioning. Assets are R2 keys only, never bytes and never viewer identity.
 
+Scene and object effects are named presets in the shared animation engine. The Studio schema mirrors these presets, which expand to timeline tracks at render time. The editor exposes preset, delay, and duration controls only.
+
 ## State patterns
 - The editor store owns the open project; components never mutate project JSON directly.
 - Undo is one stack across scene and timeline edits.
-- Scene duration derives from the longest timed element, narration, or character movement, with a five-second minimum for untimed scenes.
+- Scene duration derives from the longest timed element, narration, or character movement, with a half-second minimum. Untimed scenes default to five seconds and retain shorter durations after ripple deletion.
 
 ## Rendering
 Preview in the browser on proxy media. Two export paths, both held to 1:1 parity with the stage canvas (golden frame tests): client WebCodecs plus Mediabunny as the default for standard timelines, and server FFmpeg workers for heavy footage, unsupported codecs, and headless MCP renders. Server renders are split by scene with segment caching.
 
 ## Media
-All media lives in Cloudflare R2 behind the key checked media worker: Finch Stock, Unsplash (via the worker proxy, attribution stamped), and the user media library. Ingest generates a 720p proxy, waveform peaks, and a thumbnail strip.
+All media lives in Cloudflare R2 behind the key checked media worker: Finch Stock, Unsplash (via the worker proxy, attribution stamped), and the user media library. Ingest generates a 720p proxy, waveform peaks, and a thumbnail strip. Audio peak arrays and edit metadata use the `x-finch-studio` object extension; peak values are normalized numbers, not media bytes.
 
 ## Surfaces and integration
 - studio.finchlearn.com: signed out visitors get the landing page, signed in users get the studio hub at the root with no redirect flash; auth is shared across .finchlearn.com (Supabase).

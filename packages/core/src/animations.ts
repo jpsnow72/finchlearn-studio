@@ -15,7 +15,9 @@
  */
 import type {
   AnimatableProperty,
+  AnimationPreset,
   AnimationPresetName,
+  Animations,
   AnimationTrack,
   CharacterAnimationName,
   CharacterId,
@@ -42,24 +44,47 @@ export const ANIMATABLE_PROPERTIES: readonly AnimatableProperty[] = [
   "opacity",
   "scale",
   "rotation",
+  "wipeLeft",
+  "wipeRight",
+  "wipeUp",
+  "wipeDown",
 ] as const;
 
 export const ANIMATION_PRESETS: ReadonlyArray<{
   name: AnimationPresetName;
   label: string;
   hint: string;
+  category: "enter" | "exit" | "emphasis";
 }> = [
-  { name: "fadeIn", label: "Fade in", hint: "Opacity 0 → 1" },
-  { name: "fadeOut", label: "Fade out", hint: "Opacity 1 → 0" },
-  { name: "slideInLeft", label: "Slide in from left", hint: "Moves in from the left" },
-  { name: "slideInRight", label: "Slide in from right", hint: "Moves in from the right" },
-  { name: "slideInUp", label: "Slide in from bottom", hint: "Moves up into place" },
-  { name: "slideInDown", label: "Slide in from top", hint: "Moves down into place" },
-  { name: "zoomIn", label: "Zoom in", hint: "Scales up into place" },
-  { name: "bounce", label: "Bounce in", hint: "Drops in with a bounce" },
+  { name: "fadeIn", label: "Fade in", hint: "Opacity 0 to 1", category: "enter" },
+  { name: "slideInLeft", label: "Slide in from left", hint: "Moves in from the left", category: "enter" },
+  { name: "slideInRight", label: "Slide in from right", hint: "Moves in from the right", category: "enter" },
+  { name: "slideInUp", label: "Slide in from bottom", hint: "Moves up into place", category: "enter" },
+  { name: "slideInDown", label: "Slide in from top", hint: "Moves down into place", category: "enter" },
+  { name: "popIn", label: "Pop in", hint: "Scales and fades into place", category: "enter" },
+  { name: "zoomIn", label: "Zoom in", hint: "Scales up into place", category: "enter" },
+  { name: "wipeInLeft", label: "Wipe in from left", hint: "Reveals from the left", category: "enter" },
+  { name: "wipeInRight", label: "Wipe in from right", hint: "Reveals from the right", category: "enter" },
+  { name: "wipeInUp", label: "Wipe in from top", hint: "Reveals from the top", category: "enter" },
+  { name: "wipeInDown", label: "Wipe in from bottom", hint: "Reveals from the bottom", category: "enter" },
+  { name: "bounce", label: "Bounce in", hint: "Drops in with a bounce", category: "enter" },
+  { name: "fadeOut", label: "Fade out", hint: "Opacity 1 to 0", category: "exit" },
+  { name: "slideOutLeft", label: "Slide out left", hint: "Moves off to the left", category: "exit" },
+  { name: "slideOutRight", label: "Slide out right", hint: "Moves off to the right", category: "exit" },
+  { name: "slideOutUp", label: "Slide out up", hint: "Moves off the top", category: "exit" },
+  { name: "slideOutDown", label: "Slide out down", hint: "Moves off the bottom", category: "exit" },
+  { name: "popOut", label: "Pop out", hint: "Scales and fades away", category: "exit" },
+  { name: "zoomOut", label: "Zoom out", hint: "Scales down and fades away", category: "exit" },
+  { name: "wipeOutLeft", label: "Wipe out left", hint: "Closes toward the left", category: "exit" },
+  { name: "wipeOutRight", label: "Wipe out right", hint: "Closes toward the right", category: "exit" },
+  { name: "wipeOutUp", label: "Wipe out up", hint: "Closes toward the top", category: "exit" },
+  { name: "wipeOutDown", label: "Wipe out down", hint: "Closes toward the bottom", category: "exit" },
+  { name: "emphasisPulse", label: "Pulse", hint: "Briefly grows and returns", category: "emphasis" },
+  { name: "emphasisShake", label: "Shake", hint: "Briefly shakes and returns", category: "emphasis" },
+  { name: "emphasisSpin", label: "Spin", hint: "Rotates once", category: "emphasis" },
 ];
 
-/** Easing functions: input and output are both 0–1. */
+/** Easing functions map normalized progress to an interpolation weight. */
 export const EASINGS: Record<EasingName, (t: number) => number> = {
   linear: (t) => t,
   easeIn: (t) => t * t * t,
@@ -75,6 +100,8 @@ export const EASINGS: Record<EasingName, (t: number) => number> = {
     if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
     return n1 * (t -= 2.625 / d1) * t + 0.984375;
   },
+  pulse: (t) => Math.sin(Math.PI * t),
+  shake: (t) => Math.sin(Math.PI * 6 * t),
 };
 
 function normTrack(t: AnimationTrack): Required<AnimationTrack> {
@@ -94,7 +121,9 @@ function normTrack(t: AnimationTrack): Required<AnimationTrack> {
 export function sampleTrack(track: AnimationTrack, tMs: number): number {
   const t = normTrack(track);
   if (tMs <= t.start) return t.from;
-  if (tMs >= t.start + t.duration) return t.to;
+  if (tMs >= t.start + t.duration) {
+    return t.easing === "pulse" || t.easing === "shake" ? t.from : t.to;
+  }
   const p = (tMs - t.start) / t.duration;
   const eased = EASINGS[t.easing](p);
   return t.from + (t.to - t.from) * eased;
@@ -161,11 +190,13 @@ export function expandAnimationPreset(
   const start = opts.start ?? 0;
   const duration = opts.duration ?? DEFAULT_TRACK_DURATION_MS;
   const distance = opts.distance ?? 300;
+  const fadeIn = (): AnimationTrack => ({ property: "opacity", from: 0, to: 1, start, duration });
+  const fadeOut = (): AnimationTrack => ({ property: "opacity", from: 1, to: 0, start, duration });
   switch (preset) {
     case "fadeIn":
-      return [{ property: "opacity", from: 0, to: 1, start, duration }];
+      return [fadeIn()];
     case "fadeOut":
-      return [{ property: "opacity", from: 1, to: 0, start, duration }];
+      return [fadeOut()];
     case "slideInLeft":
       return [
         { property: "x", from: -distance, to: 0, start, duration },
@@ -189,7 +220,12 @@ export function expandAnimationPreset(
     case "zoomIn":
       return [
         { property: "scale", from: 0.3, to: 1, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
+        fadeIn(),
+      ];
+    case "popIn":
+      return [
+        { property: "scale", from: 0.65, to: 1, start, duration, easing: "bounce" },
+        fadeIn(),
       ];
     case "bounce":
       return [
@@ -203,7 +239,72 @@ export function expandAnimationPreset(
         },
         { property: "opacity", from: 0, to: 1, start, duration: 300 },
       ];
+    case "slideOutLeft":
+      return [{ property: "x", from: 0, to: -distance, start, duration }, fadeOut()];
+    case "slideOutRight":
+      return [{ property: "x", from: 0, to: distance, start, duration }, fadeOut()];
+    case "slideOutUp":
+      return [{ property: "y", from: 0, to: -distance, start, duration }, fadeOut()];
+    case "slideOutDown":
+      return [{ property: "y", from: 0, to: distance, start, duration }, fadeOut()];
+    case "popOut":
+      return [{ property: "scale", from: 1, to: 0.65, start, duration }, fadeOut()];
+    case "zoomOut":
+      return [{ property: "scale", from: 1, to: 0.3, start, duration }, fadeOut()];
+    case "wipeInLeft":
+    case "wipeInRight":
+    case "wipeInUp":
+    case "wipeInDown": {
+      const property = `wipe${preset.slice("wipeIn".length)}` as AnimatableProperty;
+      return [{ property, from: 0, to: 1, start, duration }];
+    }
+    case "wipeOutLeft":
+    case "wipeOutRight":
+    case "wipeOutUp":
+    case "wipeOutDown": {
+      const property = `wipe${preset.slice("wipeOut".length)}` as AnimatableProperty;
+      return [{ property, from: 1, to: 0, start, duration }];
+    }
+    case "emphasisPulse":
+      return [{ property: "scale", from: 1, to: 1.16, start, duration, easing: "pulse" }];
+    case "emphasisShake":
+      return [{ property: "rotation", from: 0, to: 8, start, duration, easing: "shake" }];
+    case "emphasisSpin":
+      return [{ property: "rotation", from: 0, to: 360, start, duration }];
   }
+}
+
+/** Sample authored presets and optional keyframe tracks through one timeline. */
+export function sampleAnimations(
+  animations: Pick<Animations, "presets" | "timeline"> | undefined,
+  tMs: number,
+): SampledValues {
+  const presetTracks = (animations?.presets ?? []).flatMap((preset: AnimationPreset) =>
+    expandAnimationPreset(preset.name, {
+      start: preset.start,
+      duration: preset.duration,
+    }),
+  );
+  const presetValues: SampledValues = {};
+  const byProperty = new Map<AnimatableProperty, AnimationTrack[]>();
+  for (const track of presetTracks) {
+    const tracks = byProperty.get(track.property) ?? [];
+    tracks.push(track);
+    byProperty.set(track.property, tracks);
+  }
+  for (const [property, tracks] of byProperty) {
+    const active = [...tracks].reverse().find((track) => {
+      const start = track.start ?? 0;
+      return tMs >= start && tMs <= start + (track.duration ?? DEFAULT_TRACK_DURATION_MS);
+    });
+    const previous = [...tracks].reverse().find((track) => {
+      const start = track.start ?? 0;
+      return tMs > start + (track.duration ?? DEFAULT_TRACK_DURATION_MS);
+    });
+    const track = active ?? previous ?? tracks[0];
+    presetValues[property] = sampleTrack(track, tMs);
+  }
+  return { ...presetValues, ...sampleTimeline(animations?.timeline, tMs) };
 }
 
 /**

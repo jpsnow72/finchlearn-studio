@@ -7,6 +7,7 @@
  */
 import { create } from "zustand";
 import type {
+  AudioObject,
   CharacterAnimationName,
   CharacterColors,
   CharacterFacing,
@@ -14,6 +15,7 @@ import type {
   CharacterObject,
   CharacterSpeech,
   CharacterWaypoint,
+  AnimationPreset,
   CourseObject,
   VideoProject,
   VideoScene,
@@ -24,6 +26,12 @@ import {
   makeVideoScene,
   sceneContentDurationMs,
 } from "@finch-studio/animation";
+import {
+  addAudioVolumeKeyframe,
+  rippleDeleteAudioRegion as rippleDeleteRegion,
+  withAudioClipMetadata,
+  type AudioClipMetadata,
+} from "./audioEditing";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -157,6 +165,7 @@ interface VideoStudioState {
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
+  setScenePresets: (id: string, presets: AnimationPreset[]) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
   moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
@@ -164,6 +173,7 @@ interface VideoStudioState {
   selectObject: (id: string | null) => void;
   addObject: (obj: CourseObject) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
+  setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
   selectTimelineClip: (id: string | null) => void;
@@ -175,6 +185,9 @@ interface VideoStudioState {
   splitTimelineAt: (atMs: number) => void;
   rippleDeleteTimelineClip: (id: string) => void;
   rippleDeleteGapAt: (atMs: number) => void;
+  updateAudioMetadata: (id: string, patch: Partial<AudioClipMetadata>) => void;
+  addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
+  rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -480,6 +493,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit(patchScene(get().project, id, (s) => ({ ...s, name }))),
     setSceneTransition: (id, t) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, transition: t }))),
+    setScenePresets: (id, presets) =>
+      commit(
+        patchScene(get().project, id, (s) => ({
+          ...s,
+          animations: { ...s.animations, presets: presets.map((preset) => ({ ...preset })) },
+        })),
+      ),
     moveScene: (id, dir) => {
       const i = get().project.scenes.findIndex((scene) => scene.id === id);
       get().moveSceneTo(id, i + dir);
@@ -511,6 +531,18 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project, currentSceneId } = get();
       commit(
         patchObject(project, currentSceneId, id, (o) => ({ ...o, ...patch }) as CourseObject),
+      );
+    },
+    setObjectPresets: (id, presets) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (o) => ({
+          ...o,
+          animations: {
+            ...o.animations,
+            presets: presets.map((preset) => ({ ...preset })),
+          },
+        }) as CourseObject),
       );
     },
     removeObject: (id) => {
@@ -691,6 +723,53 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           })),
         );
       }
+    },
+    updateAudioMetadata: (id, patch) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) =>
+          object.type === "audio"
+            ? withAudioClipMetadata(object as AudioObject, patch)
+            : object,
+        ),
+      );
+    },
+    addAudioVolumeKeyframe: (id, timeMs, decibels) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "audio") return object;
+          const durationMs = (object.timing?.duration ?? scene.durationMs / 1000) * 1000;
+          return addAudioVolumeKeyframe(
+            object as AudioObject,
+            timeMs,
+            decibels,
+            durationMs,
+          );
+        }),
+      );
+    },
+    rippleDeleteAudioRegion: (startMs, endMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      const start = Math.max(0, Math.min(startMs, endMs));
+      const end = Math.min(scene.durationMs, Math.max(startMs, endMs));
+      const removedDuration = Math.max(0, end - start);
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          durationMs: Math.max(500, current.durationMs - removedDuration),
+          objects: rippleDeleteRegion(
+            current.objects,
+            startMs,
+            endMs,
+            scene.durationMs,
+          ),
+        })),
+      );
     },
 
     setCharAnimation: (id, a) => {

@@ -115,6 +115,14 @@ describe("scenes", () => {
     expect(project.scenes[2].transition).toBe("wipe");
     expect(project.scenes[2].durationMs).toBe(5000);
   });
+
+  it("stores scene effects", () => {
+    const s = useStudioStore.getState();
+    const id = s.project.scenes[0].id;
+    const effects = [{ name: "fadeIn" as const, start: 150, duration: 700 }];
+    s.setScenePresets(id, effects);
+    expect(useStudioStore.getState().project.scenes[0].animations?.presets).toEqual(effects);
+  });
 });
 
 describe("objects", () => {
@@ -141,6 +149,20 @@ describe("objects", () => {
       expect(obj.facing).toBe("left");
       expect(obj.colors?.shirt).toBe("#ff0000");
     }
+  });
+
+  it("stores effects on the selected object without losing other animation data", () => {
+    const s = useStudioStore.getState();
+    const char = makeStudioCharacter("student");
+    s.addObject(char);
+    s.updateObject(char.id, {
+      animations: { timeline: [{ property: "x", from: 0, to: 10 }] },
+    });
+    const effects = [{ name: "wipeInLeft" as const, start: 100, duration: 500 }];
+    useStudioStore.getState().setObjectPresets(char.id, effects);
+    const object = useStudioStore.getState().project.scenes[0].objects[0];
+    expect(object.animations?.presets).toEqual(effects);
+    expect(object.animations?.timeline).toHaveLength(1);
   });
 
   it("manages waypoints", () => {
@@ -224,8 +246,8 @@ describe("timeline", () => {
     store.endTimelineEdit();
 
     expect(useStudioStore.getState().project.scenes[0].objects[0].timing).toEqual({
-      start: 2,
-      duration: 3,
+      start: 1.9,
+      duration: 0.1,
     });
     expect(useStudioStore.getState().pastProjects).toHaveLength(pastCount + 1);
     useStudioStore.getState().undo();
@@ -280,7 +302,7 @@ describe("timeline", () => {
     store.rippleDeleteGapAt(1500);
     const scene = useStudioStore.getState().project.scenes[0];
     expect(scene.objects.find((clip) => clip.id === "after-gap")?.timing?.start).toBe(1);
-    expect(scene.durationMs).toBe(5000);
+    expect(scene.durationMs).toBe(2000);
   });
 });
 

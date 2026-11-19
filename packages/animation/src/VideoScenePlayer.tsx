@@ -12,6 +12,7 @@ import { useSceneClock } from "./useSceneClock.js";
 import { SceneTimeContext } from "./SceneTimeContext.js";
 import { DialoguePlayer, type DialogueLine } from "./dialogue.js";
 import { browserTts } from "./tts.js";
+import { mergeAnimatedStyle, timelineStyleFor } from "./animatedStyle.js";
 // Character limb-animation CSS ships with the new rigged characters (issue #16 design gate); the old characters.css did not move with the extraction.
 
 export interface VideoScenePlayerProps {
@@ -95,22 +96,29 @@ export function VideoScenePlayer({
     overflow: "hidden",
     opacity: transitionAlpha,
   };
+  const animatedStyle = mergeAnimatedStyle(
+    style,
+    timelineStyleFor(scene.animations, clock.tMs),
+  );
 
   return (
-    <div className="vsp-scene" style={style}>
+    <div className="vsp-scene" style={animatedStyle}>
       <SceneTimeContext.Provider value={clock.tMs}>
         {scene.objects
           .filter((o) => o.visible !== false)
           .map((o) => (
             <div
               key={o.id}
-              style={{
-                position: "absolute",
-                left: o.position?.x ?? 0,
-                top: o.position?.y ?? 0,
-                width: o.position?.w,
-                height: o.position?.h,
-              }}
+              style={mergeAnimatedStyle(
+                {
+                  position: "absolute",
+                  left: o.position?.x ?? 0,
+                  top: o.position?.y ?? 0,
+                  width: o.position?.w,
+                  height: o.position?.h,
+                },
+                timelineStyleFor(o.animations, clock.tMs),
+              )}
             >
               {renderObject(o, clock.tMs)}
             </div>

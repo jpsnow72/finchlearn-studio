@@ -146,7 +146,7 @@ export function App() {
             playing={clock.playing}
             setPlaying={(v) => (v ? clock.play() : clock.pause())}
             tMs={clock.tMs}
-            setTMs={clock.seek}
+            setTMs={(ms) => clock.seek(ms ?? 0)}
           />
           <div className="export-plan muted">
             Export plan: {project.scenes.length} scene{project.scenes.length === 1 ? "" : "s"},{" "}
