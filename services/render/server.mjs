@@ -59,7 +59,7 @@ function corsHeaders(req) {
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-render-key, x-render-token",
+    "access-control-allow-headers": "content-type, x-render-key, x-render-token, x-render-format",
     vary: "Origin",
   };
 }
