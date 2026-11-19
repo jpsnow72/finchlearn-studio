@@ -1,5 +1,6 @@
-import type { CharacterObject, VideoProject } from "@finch-studio/core";
+import type { VideoProject } from "@finch-studio/core";
 import { projectTimeline } from "@finch-studio/animation";
+import { getCaptionCues } from "./captions";
 
 export type ExportPresetId =
   | "lms"
@@ -60,20 +61,22 @@ export function formatCaptions(
   format: "srt" | "vtt",
 ): string {
   const { scenes } = projectTimeline(project);
-  const cues = scenes.flatMap(({ scene, startMs }) =>
-    scene.objects.flatMap((object) => {
-      if (object.type !== "character") return [];
-      return ((object as CharacterObject).speech ?? []).flatMap((line) => {
-        const start = Math.max(0, line.start);
-        const end = Math.min(scene.durationMs, line.start + line.duration);
-        const text = line.text.trim();
-        if (!text || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-          return [];
-        }
-        return [{ start: startMs + start, end: startMs + end, text }];
-      });
-    }),
-  ).sort((a, b) => a.start - b.start);
+  const cueByScene = new Map(scenes.map(({ scene, startMs }) => [scene.id, { scene, startMs }]));
+  const cues = getCaptionCues(project).flatMap((cue) => {
+    const scene = cueByScene.get(cue.sceneId);
+    if (!scene) return [];
+    const start = Math.max(0, cue.startMs);
+    const end = Math.min(scene.scene.durationMs, cue.startMs + cue.durationMs);
+    const text = cue.text.trim();
+    if (!text || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      return [];
+    }
+    return [{
+      start: scene.startMs + start,
+      end: scene.startMs + end,
+      text,
+    }];
+  }).sort((a, b) => a.start - b.start);
 
   const timestamp = (ms: number) => {
     const total = Math.max(0, Math.round(ms));

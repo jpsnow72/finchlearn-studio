@@ -11,6 +11,8 @@ import {
   makeStudioCharacter,
   makeStudioShape,
 } from "../store.js";
+import { getCaptionCues, getCaptionStyle } from "../captions.js";
+import { formatCaptions } from "../exportPresets.js";
 
 beforeEach(() => {
   // Fresh project per test; localStorage is stubbed by jsdom/node env.
@@ -239,6 +241,103 @@ describe("objects", () => {
     const st = useStudioStore.getState();
     expect(st.project.scenes[0].objects).toHaveLength(0);
     expect(st.selectedObjectId).toBeNull();
+  });
+});
+
+describe("captions", () => {
+  it("keeps caption edits separate from narration and persists the global style", () => {
+    const store = useStudioStore.getState();
+    const character = makeStudioCharacter("student");
+    store.addObject(character);
+    store.addSpeech(character.id, {
+      id: "caption-line",
+      text: "Spoken words",
+      start: 500,
+      duration: 1200,
+    });
+    const sceneId = useStudioStore.getState().project.scenes[0].id;
+
+    useStudioStore.getState().updateCaption(sceneId, "caption-line", {
+      text: "Edited captions",
+      startMs: 700,
+      durationMs: 900,
+    });
+    useStudioStore.getState().setCaptionStyle({
+      font: "monospace",
+      size: 38,
+      position: "top",
+    });
+
+    const project = useStudioStore.getState().project;
+    const updatedCharacter = project.scenes[0].objects.find(
+      (object) => object.id === character.id,
+    );
+    expect(updatedCharacter?.type === "character" && updatedCharacter.speech?.[0].text)
+      .toBe("Spoken words");
+    expect(getCaptionCues(project)).toMatchObject([
+      { text: "Edited captions", startMs: 700, durationMs: 900 },
+    ]);
+    expect(getCaptionStyle(project)).toEqual({
+      font: "monospace",
+      size: 38,
+      position: "top",
+    });
+    expect(localStorage.getItem("ocf.video-studio.project.v1")).toContain("Edited captions");
+  });
+
+  it("keeps caption timing within the scene so exports retain the cue", () => {
+    const store = useStudioStore.getState();
+    const character = makeStudioCharacter("student");
+    store.addObject(character);
+    store.addSpeech(character.id, {
+      id: "caption-line",
+      text: "Spoken words",
+      start: 500,
+      duration: 1200,
+    });
+    const sceneId = useStudioStore.getState().project.scenes[0].id;
+
+    useStudioStore.getState().updateCaption(sceneId, "caption-line", {
+      startMs: 6000,
+      durationMs: 2000,
+    });
+
+    const project = useStudioStore.getState().project;
+    const scene = project.scenes[0];
+    const cue = getCaptionCues(project)[0];
+    expect(cue.startMs + cue.durationMs).toBe(scene.durationMs);
+    expect(cue.durationMs).toBe(100);
+    expect(scene.durationMs).toBe(1700);
+    expect(formatCaptions(project, "srt")).toContain(
+      "00:00:01,600 --> 00:00:01,700\nSpoken words",
+    );
+  });
+
+  it("copies caption edits when a scene is duplicated", () => {
+    const store = useStudioStore.getState();
+    const sourceSceneId = store.project.scenes[0].id;
+    const character = makeStudioCharacter("student");
+    store.addObject(character);
+    store.addSpeech(character.id, {
+      id: "caption-line",
+      text: "Spoken words",
+      start: 500,
+      duration: 1200,
+    });
+    useStudioStore.getState().updateCaption(sourceSceneId, "caption-line", {
+      text: "Edited captions",
+      startMs: 700,
+      durationMs: 1500,
+    });
+
+    useStudioStore.getState().duplicateScene(sourceSceneId);
+
+    const cues = getCaptionCues(useStudioStore.getState().project);
+    expect(cues).toHaveLength(2);
+    expect(cues.map((cue) => cue.text)).toEqual(["Edited captions", "Edited captions"]);
+    expect(cues.map((cue) => cue.sceneId)).toEqual(
+      useStudioStore.getState().project.scenes.map((scene) => scene.id),
+    );
   });
 });
 
