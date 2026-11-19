@@ -7,7 +7,12 @@
  */
 import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import type { CharacterObject } from "@finch-studio/core";
-import { useStudioStore, useCurrentScene, useSelectedObject } from "../store";
+import {
+  timelineClipRange,
+  useStudioStore,
+  useCurrentScene,
+  useSelectedObject,
+} from "../store";
 import { StudioObjectRenderer } from "./StudioObjectRenderer";
 import { SceneTimeContext } from "@finch-studio/animation";
 
@@ -72,7 +77,12 @@ export function StudioCanvas({
         >
           <SceneTimeContext.Provider value={tMs}>
             {scene.objects
-              .filter((o) => o.visible !== false)
+              .filter((o) => {
+                if (o.visible === false) return false;
+                const range = timelineClipRange(o, scene.durationMs);
+                const time = tMs ?? 0;
+                return time >= range.startMs && time < range.startMs + range.durationMs;
+              })
               .map((o) => {
                 const pos = o.position ?? {};
                 const isSel = o.id === selected?.id;
