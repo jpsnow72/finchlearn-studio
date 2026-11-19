@@ -257,3 +257,24 @@ input[type="range"] { accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .char-thumb *, .studio-stage * { animation: none !important; }
 }
+
+/* Safe zone overlays and alignment guides (issue #13) */
+.guide-title-safe { position: absolute; inset: 5%; border: 1px dashed rgba(59,130,246,.7); pointer-events: none; }
+.guide-social-safe { position: absolute; left: 50%; top: 8%; width: 34.7%; height: 78%; transform: translateX(-50%); border: 1px dashed rgba(16,185,129,.8); pointer-events: none; }
+.guide-center-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 0; border-left: 1px dotted rgba(239,68,68,.6); pointer-events: none; }
+.guide-center-h { position: absolute; top: 50%; left: 0; right: 0; height: 0; border-top: 1px dotted rgba(239,68,68,.6); pointer-events: none; }
+.guide-toggle { margin-top: 8px; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border, #d4d4d8); background: var(--surface, #fff); cursor: pointer; }
+
+/* Shell surfaces: landing and hub (issues #67, #68) */
+.shell { max-width: 1080px; margin: 0 auto; padding: 48px 24px; font-family: system-ui, sans-serif; }
+.shell-hero h1 { font-size: 40px; margin: 0 0 12px; }
+.shell-hero p { font-size: 18px; max-width: 640px; }
+.shell-ctas { display: flex; gap: 12px; margin-top: 24px; }
+.shell-cta { padding: 12px 20px; border-radius: 8px; border: 1px solid #111; background: #111; color: #fff; font-size: 15px; cursor: pointer; }
+.shell-cta.secondary { background: #fff; color: #111; }
+.shell-lane { margin-top: 36px; }
+.shell-lane h2 { font-size: 20px; margin: 0 0 12px; }
+.shell-cards { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.shell-card { min-width: 200px; max-width: 200px; border: 1px solid #e4e4e7; border-radius: 10px; padding: 16px; background: #fff; }
+.shell-card button { margin-top: 10px; padding: 6px 12px; border-radius: 6px; border: 1px solid #111; background: #111; color: #fff; cursor: pointer; }
+.shell-empty { color: #71717a; font-size: 14px; }

@@ -27,6 +27,8 @@ export function StudioCanvas({
   const addWaypoint = useStudioStore((s) => s.addWaypoint);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  // Safe zone overlays and alignment guides (issue #13 ergonomics).
+  const [showGuides, setShowGuides] = useState(false);
 
   // Fit the fixed 1280×720 stage into the available width.
   useLayoutEffect(() => {
@@ -106,8 +108,24 @@ export function StudioCanvas({
                 />
               ))}
           </SceneTimeContext.Provider>
+          {showGuides && (
+            <>
+              <div className="guide-title-safe" title="Title safe area" />
+              <div className="guide-social-safe" title="9:16 social safe zone" />
+              <div className="guide-center-v" />
+              <div className="guide-center-h" />
+            </>
+          )}
         </div>
       </div>
+      <button
+        type="button"
+        className="guide-toggle"
+        aria-pressed={showGuides}
+        onClick={() => setShowGuides((v) => !v)}
+      >
+        {showGuides ? "Hide safe zones" : "Show safe zones"}
+      </button>
       {pathEdit && (
         <div className="studio-path-hint">
           📍 Click on the stage to drop waypoints for{" "}
