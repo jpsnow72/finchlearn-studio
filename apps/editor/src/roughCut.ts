@@ -568,9 +568,18 @@ export function applyTranscriptWordDeletion(
     sceneDurationMs,
   );
   if (!range) return null;
+  // Deleting through the transcript's final word deletes to the end of
+  // the clip's visible window: the trailing pause after the last word
+  // belongs to the deleted passage, not to a surviving tail piece.
+  let endMs = range.endMs;
+  if (Math.floor(wordEndIndex) >= availability.transcript.words.length) {
+    const win = clipSourceWindow(target, sceneDurationMs);
+    endMs = Math.min(sceneDurationMs, win.clipStartMs + win.clipDurationMs);
+    if (endMs < range.endMs) endMs = range.endMs;
+  }
   return {
-    objects: rippleDeleteClipRegion(objects, clipId, range.startMs, range.endMs, sceneDurationMs),
-    removedMs: range.removedMs,
+    objects: rippleDeleteClipRegion(objects, clipId, range.startMs, endMs, sceneDurationMs),
+    removedMs: endMs - range.startMs,
   };
 }
 
