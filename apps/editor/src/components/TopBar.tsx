@@ -10,6 +10,10 @@ export function TopBar() {
   const embedObjectId = useStudioStore((s) => s.embedObjectId);
   const newProject = useStudioStore((s) => s.newProject);
   const setProjectName = useStudioStore((s) => s.setProjectName);
+  const canUndo = useStudioStore((s) => s.pastProjects.length > 0);
+  const canRedo = useStudioStore((s) => s.futureProjects.length > 0);
+  const undo = useStudioStore((s) => s.undo);
+  const redo = useStudioStore((s) => s.redo);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -44,7 +48,7 @@ export function TopBar() {
         `ocf.video-studio.return.${embedObjectId}`,
         JSON.stringify(project),
       );
-      setStatus("Copied — close this tab, then re-open the video object in the course editor to import.");
+      setStatus("Copied - close this tab, then re-open the video object in the course editor to import.");
     } catch {
       setStatus("Copy failed: storage unavailable.");
     }
@@ -66,6 +70,12 @@ export function TopBar() {
       />
       {embedObjectId && <span className="embed-badge">Embedded in course</span>}
       <div className="topbar-actions">
+        <button type="button" onClick={undo} disabled={!canUndo} aria-label="Undo">
+          Undo
+        </button>
+        <button type="button" onClick={redo} disabled={!canRedo} aria-label="Redo">
+          Redo
+        </button>
         <button
           type="button"
           onClick={() => {

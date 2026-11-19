@@ -21,6 +21,7 @@ import {
   transitionAlpha,
 } from "@finch-studio/animation";
 import { facingFromAngle, samplePath } from "@finch-studio/core";
+import { timelineClipRange } from "./store";
 
 const FPS = 30;
 
@@ -296,7 +297,12 @@ export async function exportVideoProject(
   ) => {
     target.fillStyle = scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
-    for (const o of scene.objects) drawObject(target, sprites, o, localT);
+    for (const o of scene.objects) {
+      const range = timelineClipRange(o, scene.durationMs);
+      if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
+        drawObject(target, sprites, o, localT);
+      }
+    }
   };
 
   for (let f = 0; f < totalFrames; f++) {

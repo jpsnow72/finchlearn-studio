@@ -2,7 +2,8 @@
  * Video Studio store — project state for the standalone app.
  *
  * Scenes hold inline CourseObjects (characters, text, shapes, images).
- * All mutations are plain zustand set() — no undo in the MVP.
+ * All project mutations go through the store so scene and timeline edits
+ * share one undo history.
  */
 import { create } from "zustand";
 import type {
@@ -23,6 +24,30 @@ import {
   makeVideoScene,
   sceneContentDurationMs,
 } from "@finch-studio/animation";
+
+export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
+export type TimelineLane = (typeof TIMELINE_LANES)[number];
+
+const HISTORY_LIMIT = 100;
+const MIN_CLIP_DURATION_MS = 100;
+const STUDIO_EXTENSION = "x-finch-studio";
+
+export function snapTimelineTime(
+  timeMs: number,
+  candidates: number[],
+  toleranceMs: number,
+): number {
+  let nearest = timeMs;
+  let distance = toleranceMs;
+  for (const candidate of candidates) {
+    const candidateDistance = Math.abs(candidate - timeMs);
+    if (candidateDistance <= distance) {
+      nearest = candidate;
+      distance = candidateDistance;
+    }
+  }
+  return nearest;
+}
 
 let objCounter = 0;
 function newObjId(prefix: string): string {
@@ -102,15 +127,29 @@ interface TtsSettings {
   pitch: number;
 }
 
+interface TimelineClipPatch {
+  startMs?: number;
+  durationMs?: number;
+  lane?: TimelineLane;
+  trimEdge?: "start" | "end";
+}
+
 interface VideoStudioState {
   project: VideoProject;
+  pastProjects: VideoProject[];
+  futureProjects: VideoProject[];
+  timelineEditOrigin: VideoProject | null;
   currentSceneId: string;
   selectedObjectId: string | null;
+  selectedTimelineClipId: string | null;
+  timelineSnapEnabled: boolean;
   tts: TtsSettings;
   embedObjectId: string | null;
 
   // project
   newProject: () => void;
+  undo: () => void;
+  redo: () => void;
   setProjectName: (name: string) => void;
   // scenes
   addScene: () => void;
@@ -127,6 +166,15 @@ interface VideoStudioState {
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
+  selectTimelineClip: (id: string | null) => void;
+  beginTimelineEdit: () => void;
+  endTimelineEdit: () => void;
+  toggleTimelineSnap: () => void;
+  updateTimelineClip: (id: string, patch: TimelineClipPatch, recordHistory?: boolean) => void;
+  splitTimelineClip: (id: string, atMs: number) => void;
+  splitTimelineAt: (atMs: number) => void;
+  rippleDeleteTimelineClip: (id: string) => void;
+  rippleDeleteGapAt: (atMs: number) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -193,6 +241,108 @@ function duplicateObject(object: CourseObject): CourseObject {
   return copy;
 }
 
+function studioMetadata(object: CourseObject): Record<string, unknown> {
+  return object.extensions?.[STUDIO_EXTENSION] ?? {};
+}
+
+export function timelineLaneForObject(object: CourseObject): TimelineLane {
+  const savedLane = studioMetadata(object).timelineLane;
+  if (TIMELINE_LANES.includes(savedLane as TimelineLane)) {
+    return savedLane as TimelineLane;
+  }
+  if (object.type === "audio") return "voice";
+  if (object.type === "video") return "main";
+  return "overlay";
+}
+
+export function timelineClipRange(
+  object: CourseObject,
+  sceneDurationMs: number,
+): { startMs: number; durationMs: number } {
+  const startMs = Math.min(
+    Math.max(0, (object.timing?.start ?? 0) * 1000),
+    Math.max(0, sceneDurationMs - MIN_CLIP_DURATION_MS),
+  );
+  const durationMs = Math.min(
+    sceneDurationMs - startMs,
+    Math.max(
+      MIN_CLIP_DURATION_MS,
+      (object.timing?.duration ??
+        Math.max(0.1, sceneDurationMs / 1000 - startMs / 1000)) * 1000,
+    ),
+  );
+  return { startMs, durationMs };
+}
+
+function withTimelineClip(
+  object: CourseObject,
+  startMs: number,
+  durationMs: number,
+  lane = timelineLaneForObject(object),
+  sourceInDeltaMs = 0,
+): CourseObject {
+  const metadata: Record<string, unknown> = {
+    ...studioMetadata(object),
+    timelineLane: lane,
+  };
+  if ((object.type === "video" || object.type === "audio") && sourceInDeltaMs !== 0) {
+    metadata.sourceInMs = Math.max(
+      0,
+      (typeof metadata.sourceInMs === "number" ? metadata.sourceInMs : 0) + sourceInDeltaMs,
+    );
+  }
+  return {
+    ...object,
+    timing: { ...object.timing, start: startMs / 1000, duration: durationMs / 1000 },
+    extensions: { ...object.extensions, [STUDIO_EXTENSION]: metadata },
+  } as CourseObject;
+}
+
+function rippleObjects(
+  objects: CourseObject[],
+  fromMs: number,
+  toMs: number,
+  sceneDurationMs: number,
+  excludedId?: string,
+): CourseObject[] {
+  const amount = toMs - fromMs;
+  const result: CourseObject[] = [];
+  for (const object of objects) {
+    if (object.id === excludedId) continue;
+    const { startMs, durationMs } = timelineClipRange(object, sceneDurationMs);
+    const endMs = startMs + durationMs;
+    if (endMs <= fromMs) {
+      result.push(object);
+      continue;
+    }
+    if (startMs >= toMs) {
+      result.push(withTimelineClip(object, startMs - amount, durationMs));
+      continue;
+    }
+
+    const beforeMs = Math.max(0, Math.min(endMs, fromMs) - startMs);
+    const afterMs = Math.max(0, endMs - Math.max(startMs, toMs));
+    if (beforeMs >= MIN_CLIP_DURATION_MS) {
+      result.push(withTimelineClip(object, startMs, beforeMs));
+    }
+    if (afterMs >= MIN_CLIP_DURATION_MS) {
+      const after = withTimelineClip(
+        object,
+        fromMs,
+        afterMs,
+        timelineLaneForObject(object),
+        Math.max(0, toMs - startMs),
+      );
+      if (beforeMs >= MIN_CLIP_DURATION_MS) {
+        result.push({ ...after, id: newObjId("clip") } as CourseObject);
+      } else {
+        result.push(after);
+      }
+    }
+  }
+  return result;
+}
+
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
   const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
   const params =
@@ -202,25 +352,84 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
   const embedObjectId: string | null = params?.get("embed") ?? null;
 
   const commit = (project: VideoProject) => {
+    const state = get();
+    const previous = state.project;
+    if (project === previous) return;
     const derivedProject = deriveProjectDurations(project);
     persist(derivedProject);
-    set({ project: derivedProject });
+    if (state.timelineEditOrigin) {
+      set({ project: derivedProject });
+    } else {
+      set((current) => ({
+        project: derivedProject,
+        pastProjects: [...current.pastProjects, previous].slice(-HISTORY_LIMIT),
+        futureProjects: [],
+      }));
+    }
   };
 
   return {
     project: initial,
+    pastProjects: [],
+    futureProjects: [],
+    timelineEditOrigin: null,
     currentSceneId: initial.scenes[0]?.id ?? "",
     selectedObjectId: null,
+    selectedTimelineClipId: null,
+    timelineSnapEnabled: true,
     tts: { voiceId: undefined, rate: 1, pitch: 1 },
     embedObjectId,
 
     newProject: () => {
-      const project = makeVideoProject("Untitled video");
+      const project = deriveProjectDurations(makeVideoProject("Untitled video"));
       persist(project);
       set({
         project,
+        pastProjects: [],
+        futureProjects: [],
+        timelineEditOrigin: null,
         currentSceneId: project.scenes[0].id,
         selectedObjectId: null,
+        selectedTimelineClipId: null,
+      });
+    },
+    undo: () => {
+      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedTimelineClipId } = get();
+      const previous = pastProjects[pastProjects.length - 1];
+      if (!previous) return;
+      persist(previous);
+      const scene =
+        previous.scenes.find((item) => item.id === currentSceneId) ?? previous.scenes[0];
+      set({
+        project: previous,
+        pastProjects: pastProjects.slice(0, -1),
+        futureProjects: [project, ...futureProjects],
+        currentSceneId: scene.id,
+        selectedObjectId: scene.objects.some((item) => item.id === selectedObjectId)
+          ? selectedObjectId
+          : null,
+        selectedTimelineClipId: scene.objects.some((item) => item.id === selectedTimelineClipId)
+          ? selectedTimelineClipId
+          : null,
+      });
+    },
+    redo: () => {
+      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedTimelineClipId } = get();
+      const next = futureProjects[0];
+      if (!next) return;
+      persist(next);
+      const scene = next.scenes.find((item) => item.id === currentSceneId) ?? next.scenes[0];
+      set({
+        project: next,
+        pastProjects: [...pastProjects, project].slice(-HISTORY_LIMIT),
+        futureProjects: futureProjects.slice(1),
+        currentSceneId: scene.id,
+        selectedObjectId: scene.objects.some((item) => item.id === selectedObjectId)
+          ? selectedObjectId
+          : null,
+        selectedTimelineClipId: scene.objects.some((item) => item.id === selectedTimelineClipId)
+          ? selectedTimelineClipId
+          : null,
       });
     },
     setProjectName: (name) => commit({ ...get().project, name }),
@@ -229,7 +438,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project } = get();
       const scene = makeVideoScene(`Scene ${project.scenes.length + 1}`);
       commit({ ...project, scenes: [...project.scenes, scene] });
-      set({ currentSceneId: scene.id });
+      set({ currentSceneId: scene.id, selectedTimelineClipId: null });
     },
     duplicateScene: (id) => {
       const { project } = get();
@@ -246,7 +455,11 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const scenes = [...project.scenes];
       scenes.splice(index + 1, 0, duplicate);
       commit({ ...project, scenes });
-      set({ currentSceneId: duplicate.id, selectedObjectId: null });
+      set({
+        currentSceneId: duplicate.id,
+        selectedObjectId: null,
+        selectedTimelineClipId: null,
+      });
     },
     removeScene: (id) => {
       const { project, currentSceneId } = get();
@@ -259,6 +472,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         set({
           currentSceneId: scenes[Math.min(removedIndex, scenes.length - 1)].id,
           selectedObjectId: null,
+          selectedTimelineClipId: null,
         });
       }
     },
@@ -279,7 +493,8 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       scenes.splice(j, 0, moved);
       commit({ ...project, scenes });
     },
-    selectScene: (id) => set({ currentSceneId: id, selectedObjectId: null }),
+    selectScene: (id) =>
+      set({ currentSceneId: id, selectedObjectId: null, selectedTimelineClipId: null }),
 
     selectObject: (id) => set({ selectedObjectId: id }),
     addObject: (obj) => {
@@ -318,6 +533,161 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const objects = [...scene.objects];
       [objects[i], objects[j]] = [objects[j], objects[i]];
       commit(patchScene(project, currentSceneId, (s) => ({ ...s, objects })));
+    },
+    selectTimelineClip: (id) => set({ selectedTimelineClipId: id }),
+    beginTimelineEdit: () => {
+      if (!get().timelineEditOrigin) set({ timelineEditOrigin: get().project });
+    },
+    endTimelineEdit: () => {
+      const { project, timelineEditOrigin } = get();
+      if (!timelineEditOrigin) return;
+      set((state) => ({
+        pastProjects:
+          project === timelineEditOrigin
+            ? state.pastProjects
+            : [...state.pastProjects, timelineEditOrigin].slice(-HISTORY_LIMIT),
+        futureProjects: project === timelineEditOrigin ? state.futureProjects : [],
+        timelineEditOrigin: null,
+      }));
+    },
+    toggleTimelineSnap: () => set((state) => ({ timelineSnapEnabled: !state.timelineSnapEnabled })),
+    updateTimelineClip: (id, patch, recordHistory = true) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const object = scene?.objects.find((item) => item.id === id);
+      if (!scene || !object) return;
+      const current = timelineClipRange(object, scene.durationMs);
+      const startMs = Math.min(
+        scene.durationMs - MIN_CLIP_DURATION_MS,
+        Math.max(0, patch.startMs ?? current.startMs),
+      );
+      const durationMs = Math.min(
+        scene.durationMs - startMs,
+        Math.max(MIN_CLIP_DURATION_MS, patch.durationMs ?? current.durationMs),
+      );
+      const next = patchScene(project, currentSceneId, (currentScene) => ({
+        ...currentScene,
+        objects: currentScene.objects.map((item) =>
+          item.id === id
+            ? withTimelineClip(
+                item,
+                startMs,
+                durationMs,
+                patch.lane ?? timelineLaneForObject(item),
+                patch.trimEdge === "start" ? startMs - current.startMs : 0,
+              )
+            : item,
+        ),
+      }));
+      if (!recordHistory && !get().timelineEditOrigin) get().beginTimelineEdit();
+      commit(next);
+    },
+    splitTimelineClip: (id, atMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const object = scene?.objects.find((item) => item.id === id);
+      if (!scene || !object) return;
+      const { startMs, durationMs } = timelineClipRange(object, scene.durationMs);
+      const endMs = startMs + durationMs;
+      if (atMs - startMs < MIN_CLIP_DURATION_MS || endMs - atMs < MIN_CLIP_DURATION_MS) return;
+      const left = withTimelineClip(object, startMs, atMs - startMs);
+      const right = withTimelineClip(
+        { ...object, id: newObjId("clip") } as CourseObject,
+        atMs,
+        endMs - atMs,
+        timelineLaneForObject(object),
+        atMs - startMs,
+      );
+      commit(
+        patchScene(project, currentSceneId, (currentScene) => ({
+          ...currentScene,
+          objects: currentScene.objects.flatMap((item) =>
+            item.id === id ? [left, right] : [item],
+          ),
+        })),
+      );
+      set({ selectedTimelineClipId: right.id });
+    },
+    splitTimelineAt: (atMs) => {
+      const state = get();
+      const scene = state.project.scenes.find((s) => s.id === state.currentSceneId);
+      if (!scene) return;
+      const selected = scene.objects.find((object) => object.id === state.selectedTimelineClipId);
+      const range = selected ? timelineClipRange(selected, scene.durationMs) : null;
+      const clip =
+        selected && range && atMs > range.startMs && atMs < range.startMs + range.durationMs
+          ? selected
+          : scene.objects.find((object) => {
+              const objectRange = timelineClipRange(object, scene.durationMs);
+              return atMs > objectRange.startMs && atMs < objectRange.startMs + objectRange.durationMs;
+            });
+      if (clip) get().splitTimelineClip(clip.id, atMs);
+    },
+    rippleDeleteTimelineClip: (id) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const clip = scene?.objects.find((object) => object.id === id);
+      if (!scene || !clip) return;
+      const { startMs, durationMs } = timelineClipRange(clip, scene.durationMs);
+      const endMs = startMs + durationMs;
+      commit(
+        patchScene(project, currentSceneId, (currentScene) => ({
+          ...currentScene,
+          objects: rippleObjects(
+            currentScene.objects,
+            startMs,
+            endMs,
+            scene.durationMs,
+            id,
+          ),
+          durationMs: Math.max(500, currentScene.durationMs - durationMs),
+        })),
+      );
+      set({ selectedTimelineClipId: null });
+    },
+    rippleDeleteGapAt: (atMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene) return;
+      const ranges = scene.objects
+        .map((object) => {
+          const range = timelineClipRange(object, scene.durationMs);
+          return { startMs: range.startMs, endMs: range.startMs + range.durationMs };
+        })
+        .sort((a, b) => a.startMs - b.startMs);
+      let endMs = 0;
+      for (const range of ranges) {
+        if (range.startMs > endMs && atMs >= endMs && atMs <= range.startMs) {
+          commit(
+            patchScene(project, currentSceneId, (currentScene) => ({
+              ...currentScene,
+              objects: rippleObjects(
+                currentScene.objects,
+                endMs,
+                range.startMs,
+                scene.durationMs,
+              ),
+              durationMs: Math.max(500, currentScene.durationMs - (range.startMs - endMs)),
+            })),
+          );
+          return;
+        }
+        endMs = Math.max(endMs, range.endMs);
+      }
+      if (endMs < scene.durationMs && atMs >= endMs) {
+        commit(
+          patchScene(project, currentSceneId, (currentScene) => ({
+            ...currentScene,
+            objects: rippleObjects(
+              currentScene.objects,
+              endMs,
+              scene.durationMs,
+              scene.durationMs,
+            ),
+            durationMs: Math.max(500, currentScene.durationMs - (scene.durationMs - endMs)),
+          })),
+        );
+      }
     },
 
     setCharAnimation: (id, a) => {
