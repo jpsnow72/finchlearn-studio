@@ -1,15 +1,23 @@
 /**
- * videoExport: legacy quick export, render a VideoProject to WebM (canvas
- * plus MediaRecorder). This is the fast preview grade path kept from the
- * extracted video studio app. The production render paths are the client
- * WebCodecs export and the server FFmpeg pipeline (issues #48 and #33),
- * which must match the stage canvas frame for frame (issue #8 parity rule).
+ * videoExport: render a VideoProject to a video blob on the client.
  *
- * Characters export as placeholder silhouettes drawn on an offscreen canvas:
- * the real rigged characters are a design-first workstream (issue #16) and
- * plug into the CharacterFigure seam. Path movement and facing are honored.
+ * Two paths share ONE frame renderer (the #8 parity rule: export frames
+ * are the stage frames):
+ * - exportVideoProject: real time canvas capture via MediaRecorder
+ *   (MP4 where the browser supports it, else WebM).
+ * - exportMp4Project: offline WebCodecs render via Mediabunny (issue
+ *   #48), producing a real MP4 as fast as frames can be drawn.
+ * The server FFmpeg pipeline (#33) remains the path for heavy footage
+ * and headless renders.
+ *
+ * Characters render as the real rigged characters (@finch-studio/
+ * characters): each character is pre-rendered as a frame set across its
+ * action cycle with viseme lip sync during its speech lines, then
+ * composited per frame. Path movement and facing are honored.
  *
  * Multi-scene: scenes render per projectTimeline with their seam transitions.
+ * Audio is not mixed on the client paths yet; narration audio joins in
+ * the server pipeline and the audio panel work.
  */
 import type {
   CharacterObject,
@@ -21,6 +29,16 @@ import {
   transitionAlpha,
 } from "@finch-studio/animation";
 import { facingFromAngle, samplePath } from "@finch-studio/core";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  ACTION_NAMES,
+  RiggedCharacter,
+  characterForLegacyId,
+  mouthAt,
+  visemesFromText,
+  type ActionName,
+} from "@finch-studio/characters";
 import { timelineClipRange } from "./store";
 import { getRenderViewport } from "./exportPresets";
 
@@ -32,40 +50,58 @@ function stripHtml(html: string): string {
   return (div.textContent ?? "").trim();
 }
 
-interface CharSprite {
-  img: HTMLCanvasElement;
-  aspect: number; // width / height of the placeholder silhouette
+interface CharFrames {
+  frames: HTMLImageElement[];
+  frameMs: number;
+  aspect: number; // width / height of the character art (200 / 400)
 }
 
-async function renderCharacterSprite(
+export function studioActionFor(name: string | undefined): ActionName {
+  if (name && (ACTION_NAMES as string[]).includes(name)) return name as ActionName;
+  if (name === "nod") return "talk";
+  return "idle";
+}
+
+const FRAME_MS = 100;
+const CYCLE_MS = 2600;
+
+async function buildCharacterFrames(
   char: CharacterObject,
-): Promise<CharSprite | null> {
-  const canvas = document.createElement("canvas");
-  canvas.width = 120;
-  canvas.height = 240;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.fillStyle = "#9aa7b4";
-  ctx.beginPath();
-  ctx.ellipse(60, 52, 26, 30, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(28, 96);
-  ctx.quadraticCurveTo(60, 78, 92, 96);
-  ctx.lineTo(98, 226);
-  ctx.quadraticCurveTo(60, 238, 22, 226);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "11px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(char.name ?? "Character", 60, 140, 100);
-  return { img: canvas, aspect: 0.5 };
+): Promise<CharFrames | null> {
+  const def = characterForLegacyId(char.characterId);
+  const action = studioActionFor(char.characterAnimation);
+  const frames: HTMLImageElement[] = [];
+  for (let t = 0; t <= CYCLE_MS; t += FRAME_MS) {
+    const line = (char.speech ?? []).find(
+      (sp) => t >= sp.start && t < sp.start + sp.duration,
+    );
+    const mouth = line?.text
+      ? mouthAt(visemesFromText(line.text), t - line.start)
+      : undefined;
+    const markup = renderToStaticMarkup(
+      createElement(RiggedCharacter, {
+        def,
+        action,
+        tMs: t,
+        ...(mouth ? { mouthOverride: mouth } : {}),
+      }),
+    );
+    const img = new Image();
+    img.src =
+      "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+    try {
+      await img.decode();
+    } catch {
+      return null;
+    }
+    frames.push(img);
+  }
+  return { frames, frameMs: FRAME_MS, aspect: 0.5 };
 }
 
 function drawCharacter(
   ctx: CanvasRenderingContext2D,
-  sprite: CharSprite,
+  sprite: CharFrames,
   char: CharacterObject,
   tMs: number,
 ): void {
@@ -85,13 +121,18 @@ function drawCharacter(
     facing = facingFromAngle(s.angleDeg);
   }
 
+  const frame =
+    sprite.frames[
+      Math.min(sprite.frames.length - 1, Math.floor(tMs / sprite.frameMs))
+    ];
+  if (!frame) return;
   ctx.save();
   if (facing === "left") {
     ctx.translate(x + w, y);
     ctx.scale(-1, 1);
-    ctx.drawImage(sprite.img, 0, 0, w, h);
+    ctx.drawImage(frame, 0, 0, w, h);
   } else {
-    ctx.drawImage(sprite.img, x, y, w, h);
+    ctx.drawImage(frame, x, y, w, h);
   }
   ctx.restore();
 
@@ -153,7 +194,7 @@ function drawBubble(
 
 function drawObject(
   ctx: CanvasRenderingContext2D,
-  sprites: Map<string, CharSprite>,
+  sprites: Map<string, CharFrames>,
   o: CourseObject,
   tMs: number,
 ): void {
@@ -246,8 +287,8 @@ export async function exportVideoProject(
   if (tl.length === 0) throw new Error("Project has no scenes.");
   const totalFrames = Math.max(1, Math.round((totalMs / 1000) * FPS));
 
-  // Pre-render character sprites.
-  const sprites = new Map<string, CharSprite>();
+  // Pre-render character frame sets.
+  const sprites = new Map<string, CharFrames>();
   const chars: CharacterObject[] = [];
   for (const scene of project.scenes) {
     for (const o of scene.objects) {
@@ -256,7 +297,7 @@ export async function exportVideoProject(
   }
   await Promise.all(
     chars.map(async (c) => {
-      const sprite = await renderCharacterSprite(c);
+      const sprite = await buildCharacterFrames(c);
       if (sprite) sprites.set(c.id, sprite);
     }),
   );
@@ -415,4 +456,148 @@ export async function exportVideoProject(
   } finally {
     stream.getTracks().forEach((track) => track.stop());
   }
+}
+
+/**
+ * Offline MP4 export via WebCodecs + Mediabunny (issue #48). Draws the
+ * same frames as the real time path into a canvas and encodes them as
+ * fast as they render. Throws a clear error when WebCodecs is missing
+ * so the UI can fall back to the real time path.
+ */
+export async function exportMp4Project(
+  project: VideoProject,
+  onProgress?: (fraction: number) => void,
+  dimensions: { width: number; height: number } = { width: 1280, height: 720 },
+): Promise<Blob> {
+  if (typeof VideoEncoder === "undefined") {
+    throw new Error(
+      "MP4 export needs WebCodecs (use Chrome or Edge), or pick the WebM export instead.",
+    );
+  }
+  const { Output, Mp4OutputFormat, BufferTarget, CanvasSource } =
+    await import("mediabunny");
+  const { width, height } = dimensions;
+  const viewport = getRenderViewport(width, height);
+  const { scenes: tl, totalMs } = projectTimeline(project);
+  if (tl.length === 0) throw new Error("Project has no scenes.");
+  const totalFrames = Math.max(1, Math.round((totalMs / 1000) * FPS));
+
+  const sprites = new Map<string, CharFrames>();
+  const chars: CharacterObject[] = [];
+  for (const scene of project.scenes) {
+    for (const o of scene.objects) {
+      if (o.type === "character") chars.push(o as CharacterObject);
+    }
+  }
+  await Promise.all(
+    chars.map(async (c) => {
+      const frames = await buildCharacterFrames(c);
+      if (frames) sprites.set(c.id, frames);
+    }),
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get 2D canvas context.");
+  const sceneCanvas = document.createElement("canvas");
+  sceneCanvas.width = width;
+  sceneCanvas.height = height;
+  const sctx = sceneCanvas.getContext("2d");
+  if (!sctx) throw new Error("Could not create the transition-compositing canvas.");
+  const previousCanvas = document.createElement("canvas");
+  previousCanvas.width = width;
+  previousCanvas.height = height;
+  const pctx = previousCanvas.getContext("2d");
+  if (!pctx) throw new Error("Could not create the transition-compositing canvas.");
+
+  const renderSceneFrame = (
+    target: CanvasRenderingContext2D,
+    scene: (typeof tl)[number]["scene"],
+    localT: number,
+  ) => {
+    target.save();
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.fillStyle = scene.background ?? "#ffffff";
+    target.fillRect(0, 0, width, height);
+    target.setTransform(
+      viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY,
+    );
+    for (const o of scene.objects) {
+      const range = timelineClipRange(o, scene.durationMs);
+      if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
+        drawObject(target, sprites, o, localT);
+      }
+    }
+    target.restore();
+  };
+
+  const output = new Output({
+    format: new Mp4OutputFormat(),
+    target: new BufferTarget(),
+  });
+  const source = new CanvasSource(canvas, {
+    codec: "avc",
+    bitrate: 8_000_000,
+  });
+  output.addVideoTrack(source);
+  await output.start();
+
+  for (let f = 0; f < totalFrames; f++) {
+    const tMs = Math.min(totalMs, (f * 1000) / FPS);
+    let segIdx = tl.length - 1;
+    for (let i = tl.length - 1; i >= 0; i--) {
+      if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
+        segIdx = i;
+        break;
+      }
+    }
+    const seg = tl[segIdx];
+    const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
+    const progress = transitionAlpha(project, tMs);
+    const transition = seg.scene.transition ?? "cut";
+    if (segIdx > 0 && progress < 1 && transition !== "cut") {
+      const prev = tl[segIdx - 1];
+      const prevLocal = Math.min(prev.scene.durationMs, tMs - prev.startMs);
+      renderSceneFrame(sctx, seg.scene, localT);
+      if (transition === "fade") {
+        renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(previousCanvas, 0, 0);
+        ctx.globalAlpha = progress;
+        ctx.drawImage(sceneCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+      } else if (transition === "push") {
+        renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(previousCanvas, -progress * width, 0);
+        ctx.drawImage(sceneCanvas, (1 - progress) * width, 0);
+      } else if (transition === "slide") {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(sceneCanvas, (1 - progress) * width, 0);
+      } else if (transition === "wipe") {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, progress * width, height);
+        ctx.clip();
+        ctx.drawImage(sceneCanvas, 0, 0);
+        ctx.restore();
+      } else {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        const scale = 0.8 + progress * 0.2;
+        const offsetX = (width * (1 - scale)) / 2;
+        const offsetY = (height * (1 - scale)) / 2;
+        ctx.drawImage(sceneCanvas, offsetX, offsetY, width * scale, height * scale);
+      }
+    } else {
+      renderSceneFrame(ctx, seg.scene, localT);
+    }
+    await source.add(f / FPS, 1 / FPS);
+    onProgress?.((f + 1) / totalFrames);
+  }
+
+  await output.finalize();
+  const buffer = (output.target as InstanceType<typeof BufferTarget>).buffer;
+  if (!buffer) throw new Error("The MP4 encoder produced no output.");
+  return new Blob([buffer], { type: "video/mp4" });
 }

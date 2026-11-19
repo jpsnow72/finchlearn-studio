@@ -32,6 +32,8 @@ describe("export presets", () => {
   it("offers video, GIF, audio, and caption presets with the expected dimensions", () => {
     expect(EXPORT_PRESETS.map(({ id }) => id)).toEqual([
       "lms",
+      "mp4-720",
+      "mp4-1080",
       "youtube-1080",
       "youtube-720",
       "shorts",

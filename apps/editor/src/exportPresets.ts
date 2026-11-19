@@ -3,6 +3,8 @@ import { projectTimeline } from "@finch-studio/animation";
 
 export type ExportPresetId =
   | "lms"
+  | "mp4-720"
+  | "mp4-1080"
   | "youtube-1080"
   | "youtube-720"
   | "shorts"
@@ -14,7 +16,7 @@ export type ExportPresetId =
 export interface ExportPreset {
   id: ExportPresetId;
   label: string;
-  kind: "video" | "gif" | "audio" | "captions";
+  kind: "video" | "mp4" | "gif" | "audio" | "captions";
   width?: number;
   height?: number;
   captionFormat?: "srt" | "vtt";
@@ -31,6 +33,8 @@ export function getRenderViewport(width: number, height: number) {
 
 export const EXPORT_PRESETS: ExportPreset[] = [
   { id: "lms", label: "LMS video (720p)", kind: "video", width: 1280, height: 720 },
+  { id: "mp4-720", label: "MP4 fast export (720p)", kind: "mp4", width: 1280, height: 720 },
+  { id: "mp4-1080", label: "MP4 fast export (1080p)", kind: "mp4", width: 1920, height: 1080 },
   { id: "youtube-1080", label: "YouTube 1080p", kind: "video", width: 1920, height: 1080 },
   { id: "youtube-720", label: "YouTube 720p", kind: "video", width: 1280, height: 720 },
   { id: "shorts", label: "Shorts (9:16)", kind: "video", width: 1080, height: 1920 },

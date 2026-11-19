@@ -11,27 +11,29 @@ import { useContext, type CSSProperties } from "react";
 import type { CharacterObject, CourseObject } from "@finch-studio/core";
 import { SceneTimeContext } from "@finch-studio/animation";
 import {
-  ACTION_NAMES,
   RiggedCharacter,
   characterForLegacyId,
-  type ActionName,
+  mouthAt,
+  visemesFromText,
 } from "@finch-studio/characters";
-
-/** Map a legacy character animation name onto a studio action. */
-function studioAction(name: string | undefined): ActionName {
-  if (name && (ACTION_NAMES as string[]).includes(name)) return name as ActionName;
-  if (name === "nod") return "talk";
-  return "idle";
-}
+import { studioActionFor } from "../videoExport";
 
 function CharacterView({ object }: { object: CharacterObject }) {
   const tMs = useContext(SceneTimeContext);
   const def = characterForLegacyId(object.characterId);
+  const now = tMs ?? 0;
+  const line = (object.speech ?? []).find(
+    (sp) => now >= sp.start && now < sp.start + sp.duration,
+  );
+  const mouth = line?.text
+    ? mouthAt(visemesFromText(line.text), now - line.start)
+    : undefined;
   return (
     <RiggedCharacter
       def={def}
-      action={studioAction(object.characterAnimation)}
-      tMs={tMs ?? 0}
+      action={studioActionFor(object.characterAnimation)}
+      tMs={now}
+      {...(mouth ? { mouthOverride: mouth } : {})}
       style={{ width: "100%", height: "100%" }}
     />
   );

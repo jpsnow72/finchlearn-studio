@@ -1,7 +1,7 @@
 /** Top bar for project naming, export, and embedded copy-back. */
 import { useState } from "react";
 import { useStudioStore } from "../store";
-import { exportVideoProject } from "../videoExport";
+import { exportMp4Project, exportVideoProject } from "../videoExport";
 import {
   exportFileBaseName,
   EXPORT_PRESETS,
@@ -51,6 +51,14 @@ export function TopBar() {
           `${baseName}.${preset.captionFormat}`,
         );
         setStatus(`${preset.captionFormat!.toUpperCase()} captions downloaded. Saving to the User Media Library is not connected in this build.`);
+      } else if (preset.kind === "mp4") {
+        const blob = await exportMp4Project(
+          project,
+          (fraction) => setProgress(Math.round(fraction * 100)),
+          { width: preset.width!, height: preset.height! },
+        );
+        downloadBlob(blob, `${baseName}.mp4`);
+        setStatus("MP4 downloaded. Saving to the User Media Library is not connected in this build.");
       } else {
         const blob = await exportVideoProject(
           project,
