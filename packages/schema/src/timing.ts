@@ -1,7 +1,7 @@
 /**
  * Project timing math (issue #4). Same rule as the OCF video project model:
- * a fade transition overlaps the tail of the previous scene by transitionMs;
- * every other transition abuts.
+ * a non-cut transition overlaps the tail of the previous scene by transitionMs;
+ * cut transitions abut.
  */
 import type { StudioProject, StudioScene } from "./schema.js";
 
@@ -19,7 +19,7 @@ export function projectTimeline(project: StudioProject): {
   let cursor = 0;
   project.scenes.forEach((scene, i) => {
     const overlap =
-      i > 0 && scene.transition === "fade" ? (scene.transitionMs ?? 400) : 0;
+      i > 0 && scene.transition !== "cut" ? (scene.transitionMs ?? 400) : 0;
     const startMs = Math.max(0, cursor - overlap);
     const endMs = startMs + Math.max(1, scene.durationMs);
     out.push({ scene, startMs, endMs });
