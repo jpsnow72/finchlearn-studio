@@ -43,33 +43,6 @@ export function App() {
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
   const dialogueRef = useRef(new DialoguePlayer({ provider: browserTts }));
 
-  // Autosave: restore the last session once, then keep it saved (#6).
-  const loadProject = useStudioStore((s) => s.loadProject);
-  const restoredRef = useRef(false);
-  useEffect(() => {
-    if (restoredRef.current) return;
-    restoredRef.current = true;
-    try {
-      const raw = localStorage.getItem("finch-studio.autosave");
-      if (raw) {
-        const parsed = JSON.parse(raw) as typeof project;
-        if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length > 0) {
-          loadProject(parsed);
-        }
-      }
-    } catch {
-      // A corrupt autosave never blocks the editor.
-    }
-  }, [loadProject]);
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    try {
-      localStorage.setItem("finch-studio.autosave", JSON.stringify(project));
-    } catch {
-      // Storage full or unavailable: editing continues unsaved.
-    }
-  }, [project]);
-
   // Reset clock + dialogue when switching scenes.
   useEffect(() => {
     clock.replay();

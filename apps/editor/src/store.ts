@@ -95,6 +95,28 @@ export function makeStudioAudio(resource: string, name = "Audio"): CourseObject 
   } as CourseObject;
 }
 
+export function makeStarterProject(name = "Untitled video"): VideoProject {
+  const project = makeVideoProject(name);
+  const host = makeStudioCharacter("businesswoman");
+  host.characterAnimation = "wave";
+  host.speech = [
+    {
+      id: "starter-line",
+      text: "Hi, I am Maya. Add your own dialogue, drag in media, and export when you are ready.",
+      start: 400,
+      duration: 4200,
+    },
+  ];
+  const title = makeStudioText();
+  (title as { content?: string }).content = "<h1>Your title here</h1>";
+  const scene = project.scenes[0];
+  if (scene) {
+    scene.objects = [host, title];
+    scene.durationMs = 6000;
+  }
+  return project;
+}
+
 export function makeStudioText(): CourseObject {
   return {
     id: newObjId("tx"),
@@ -378,7 +400,7 @@ function rippleObjects(
 }
 
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
-  const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
+  const initial = deriveProjectDurations(loadStored() ?? makeStarterProject("Untitled video"));
   const params =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
@@ -428,7 +450,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
 
     newProject: () => {
-      const project = deriveProjectDurations(makeVideoProject("Untitled video"));
+      const project = deriveProjectDurations(makeStarterProject("Untitled video"));
       persist(project);
       set({
         project,
