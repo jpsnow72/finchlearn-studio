@@ -141,6 +141,79 @@ describe("audio editing", () => {
     expect(useStudioStore.getState().project.scenes[1]).toEqual(edited);
   });
 
+  it("keeps waveform metadata aligned when timeline clips are trimmed and split", () => {
+    const store = useStudioStore.getState();
+    store.newProject();
+    const clip = {
+      ...makeAudio("timeline-audio", 0, 4),
+      extensions: {
+        "x-finch-studio": {
+          waveformPeaks: [0.1, 0.2, 0.3, 0.4],
+          sourceOffsetMs: 250,
+          fadeInMs: 200,
+          fadeOutMs: 300,
+          volumeKeyframes: [
+            { timeMs: 500, decibels: -6 },
+            { timeMs: 1500, decibels: -12 },
+            { timeMs: 3500, decibels: -18 },
+          ],
+        },
+      },
+    };
+    store.addObject(clip);
+    store.updateTimelineClip(clip.id, { lane: "music" });
+    store.updateAudioMetadata(clip.id, { fadeInMs: 250 });
+    expect(
+      useStudioStore.getState().project.scenes[0].objects[0].extensions?.["x-finch-studio"]
+        ?.timelineLane,
+    ).toBe("music");
+    store.updateTimelineClip(clip.id, {
+      startMs: 1000,
+      durationMs: 2000,
+      trimEdge: "start",
+    });
+
+    let trimmed = useStudioStore.getState().project.scenes[0].objects[0] as AudioObject;
+    expect(trimmed.timing).toEqual({ start: 1, duration: 2 });
+    expect(getAudioClipMetadata(trimmed)).toMatchObject({
+      waveformPeaks: [0.2, 0.3],
+      sourceOffsetMs: 1250,
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      volumeKeyframes: [{ timeMs: 500, decibels: -12 }],
+    });
+
+    useStudioStore.getState().undo();
+    expect(getAudioClipMetadata(
+      useStudioStore.getState().project.scenes[0].objects[0] as AudioObject,
+    )).toMatchObject({
+      waveformPeaks: [0.1, 0.2, 0.3, 0.4],
+      sourceOffsetMs: 250,
+      fadeInMs: 250,
+      fadeOutMs: 300,
+    });
+    expect(
+      useStudioStore.getState().project.scenes[0].objects[0].extensions?.["x-finch-studio"]
+        ?.timelineLane,
+    ).toBe("music");
+
+    useStudioStore.getState().splitTimelineClip(clip.id, 2000);
+    const split = useStudioStore.getState().project.scenes[0].objects as AudioObject[];
+    expect(split.map((part) => part.extensions?.["x-finch-studio"]?.timelineLane)).toEqual([
+      "music",
+      "music",
+    ]);
+    expect(split.map((part) => getAudioClipMetadata(part))).toMatchObject([
+      { waveformPeaks: [0.1, 0.2], fadeOutMs: 0 },
+      {
+        waveformPeaks: [0.3, 0.4],
+        sourceOffsetMs: 2250,
+        fadeInMs: 0,
+        volumeKeyframes: [{ timeMs: 1500, decibels: -18 }],
+      },
+    ]);
+  });
+
   it("preserves the minimum scene duration after deleting all audio and editing the scene strip", () => {
     const store = useStudioStore.getState();
     store.newProject();
@@ -176,6 +249,7 @@ describe("audio editing", () => {
 
     const waveform = container.querySelector(".audio-waveform");
     expect(waveform?.querySelectorAll("line")).toHaveLength(4);
+    expect(container.querySelectorAll(".timeline-lane")).toHaveLength(4);
     const fadeInLabel = Array.from(container.querySelectorAll("label")).find((label) =>
       label.textContent?.startsWith("Fade in ms"),
     );

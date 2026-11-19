@@ -1,14 +1,41 @@
 /**
- * Timeline — scene preview controls and audio clip editing.
+ * Per-scene timeline with four lanes and waveform editing.
  */
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { projectTimeline } from "@finch-studio/animation";
 import type { AudioObject } from "@finch-studio/core";
+import { getAudioClipMetadata, volumeToDecibels } from "../audioEditing";
 import {
-  getAudioClipMetadata,
-  volumeToDecibels,
-} from "../audioEditing";
-import { useStudioStore } from "../store";
+  TIMELINE_LANES,
+  timelineClipRange,
+  timelineLaneForObject,
+  snapTimelineTime,
+  useStudioStore,
+  type TimelineLane,
+} from "../store";
+
+const LANE_LABELS: Record<TimelineLane, string> = {
+  main: "Main",
+  overlay: "Overlay",
+  voice: "Voice",
+  music: "Music",
+};
+
+interface ClipDrag {
+  id: string;
+  edge: "start" | "end";
+  startMs: number;
+  durationMs: number;
+  pointerX: number;
+  sceneDurationMs: number;
+  msPerPixel: number;
+}
 
 interface Region {
   startMs: number;
@@ -23,23 +50,37 @@ export function Timeline({
 }: {
   playing: boolean;
   setPlaying: (v: boolean) => void;
-  tMs: number | null;
-  setTMs: (ms: number | null) => void;
+  tMs: number;
+  setTMs: (ms: number) => void;
 }) {
   const project = useStudioStore((s) => s.project);
   const currentSceneId = useStudioStore((s) => s.currentSceneId);
+  const selectedClipId = useStudioStore((s) => s.selectedTimelineClipId);
+  const snapEnabled = useStudioStore((s) => s.timelineSnapEnabled);
   const selectScene = useStudioStore((s) => s.selectScene);
   const rippleDeleteAudioRegion = useStudioStore((s) => s.rippleDeleteAudioRegion);
   const [region, setRegion] = useState<Region | null>(null);
   const regionStart = useRef<number | null>(null);
+  const selectClip = useStudioStore((s) => s.selectTimelineClip);
+  const beginTimelineEdit = useStudioStore((s) => s.beginTimelineEdit);
+  const endTimelineEdit = useStudioStore((s) => s.endTimelineEdit);
+  const updateClip = useStudioStore((s) => s.updateTimelineClip);
+  const splitClip = useStudioStore((s) => s.splitTimelineAt);
+  const rippleDeleteClip = useStudioStore((s) => s.rippleDeleteTimelineClip);
+  const rippleDeleteGap = useStudioStore((s) => s.rippleDeleteGapAt);
+  const toggleSnap = useStudioStore((s) => s.toggleTimelineSnap);
+  const [zoom, setZoom] = useState(1);
+  const drag = useRef<ClipDrag | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const idx = project.scenes.findIndex((s) => s.id === currentSceneId);
   const scene = project.scenes[idx];
-  const local = tMs ?? 0;
-  const sceneDuration = scene?.durationMs ?? 0;
-  const audioClips = scene?.objects.filter(
+  const sceneDuration = scene?.durationMs ?? 1;
+  const clips = scene?.objects ?? [];
+  const audioClips = clips.filter(
     (object): object is AudioObject => object.type === "audio",
-  ) ?? [];
+  );
+  const selectedClip = clips.find((clip) => clip.id === selectedClipId);
 
   function getRegionTime(event: ReactPointerEvent<HTMLDivElement>): number {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -71,53 +112,255 @@ export function Timeline({
     setRegion(endMs - startMs >= 33 ? { startMs, endMs } : null);
   }
 
+  useEffect(() => () => endTimelineEdit(), [endTimelineEdit]);
+
+  useEffect(() => {
+    const move = (event: MouseEvent) => {
+      const active = drag.current;
+      if (!active) return;
+      const deltaMs = (event.clientX - active.pointerX) * active.msPerPixel;
+      const edgeMs = active.edge === "start"
+        ? active.startMs + deltaMs
+        : active.startMs + active.durationMs + deltaMs;
+      let snappedEdge = edgeMs;
+      if (snapEnabled) {
+        const toleranceMs = 8 * active.msPerPixel;
+        const otherEdges = clips
+          .filter((clip) => clip.id !== active.id)
+          .flatMap((clip) => {
+            const range = timelineClipRange(clip, active.sceneDurationMs);
+            return [range.startMs, range.startMs + range.durationMs];
+          });
+        const candidates = [0, active.sceneDurationMs, tMs, ...otherEdges];
+        snappedEdge = snapTimelineTime(edgeMs, candidates, toleranceMs);
+      }
+      if (active.edge === "start") {
+        const startMs = Math.max(0, Math.min(snappedEdge, active.startMs + active.durationMs - 100));
+        const durationMs = active.startMs + active.durationMs - startMs;
+        updateClip(active.id, {
+          startMs,
+          durationMs,
+          trimEdge: "start",
+        }, false);
+        active.startMs = startMs;
+        active.durationMs = durationMs;
+      } else {
+        const durationMs = Math.max(
+          100,
+          Math.min(active.sceneDurationMs, snappedEdge) - active.startMs,
+        );
+        updateClip(active.id, {
+          durationMs,
+          trimEdge: "end",
+        }, false);
+        active.durationMs = durationMs;
+      }
+      active.pointerX = event.clientX;
+    };
+    const end = () => {
+      endTimelineEdit();
+      drag.current = null;
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", end);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", end);
+    };
+  }, [clips, endTimelineEdit, snapEnabled, tMs, updateClip]);
+
+  const beginTrim = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    clipId: string,
+    edge: "start" | "end",
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const clip = clips.find((item) => item.id === clipId);
+    if (!clip) return;
+    const range = timelineClipRange(clip, sceneDuration);
+    const trackWidth = (gridRef.current?.getBoundingClientRect().width ?? 0) - 70;
+    if (trackWidth <= 0) return;
+    drag.current = {
+      id: clip.id,
+      edge,
+      startMs: range.startMs,
+      durationMs: range.durationMs,
+      pointerX: event.clientX,
+      sceneDurationMs: sceneDuration,
+      msPerPixel: sceneDuration / trackWidth,
+    };
+    beginTimelineEdit();
+    selectClip(clipId);
+  };
+
+  const changePlayhead = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!gridRef.current) return;
+    const bounds = gridRef.current.getBoundingClientRect();
+    const trackWidth = bounds.width - 70;
+    if (trackWidth <= 0) return;
+    const raw = Math.max(
+      0,
+      Math.min(sceneDuration, ((event.clientX - bounds.left - 70) / trackWidth) * sceneDuration),
+    );
+    setPlaying(false);
+    setTMs(raw);
+  };
+
   return (
     <div className="timeline">
       <div className="timeline-scenes">
-        {project.scenes.map((s) => (
+        {project.scenes.map((item) => (
           <button
-            key={s.id}
+            key={item.id}
             type="button"
-            className={`tl-scene${s.id === currentSceneId ? " active" : ""}`}
-            style={{ flexGrow: s.durationMs }}
+            className={`tl-scene${item.id === currentSceneId ? " active" : ""}`}
+            style={{ flexGrow: item.durationMs }}
             onClick={() => {
-              selectScene(s.id);
-              setTMs(null);
+              selectScene(item.id);
+              setTMs(0);
               setRegion(null);
             }}
-            title={`${s.name} - ${(s.durationMs / 1000).toFixed(1)}s`}
+            title={`${item.name} - ${(item.durationMs / 1000).toFixed(1)}s`}
           >
-            {s.name}
+            {item.name}
           </button>
         ))}
       </div>
-      <div className="timeline-controls">
-        <button
-          type="button"
-          onClick={() => setPlaying(!playing)}
-          aria-label={playing ? "Pause" : "Play"}
-        >
-          {playing ? "⏸" : "▶"}
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={sceneDuration}
-          step={33}
-          value={Math.min(local, sceneDuration)}
-          onChange={(e) => {
-            setPlaying(false);
-            setTMs(parseInt(e.target.value, 10));
-          }}
-          aria-label="Scrub scene"
-        />
-        <span className="tl-time">
-          {(local / 1000).toFixed(1)}s / {(sceneDuration / 1000).toFixed(1)}s
-        </span>
-        <span className="tl-time muted">
-          Export: {(projectTimeline(project).totalMs / 1000).toFixed(1)}s total
-        </span>
+      <div className="timeline-toolbar">
+        <div className="timeline-controls">
+          <button
+            type="button"
+            onClick={() => setPlaying(!playing)}
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? "⏸" : "▶"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={sceneDuration}
+            step={10}
+            value={Math.min(tMs, sceneDuration)}
+            onChange={(event) => {
+              setPlaying(false);
+              setTMs(parseInt(event.target.value, 10));
+            }}
+            aria-label="Scrub scene"
+          />
+          <span className="tl-time">
+            {(tMs / 1000).toFixed(1)}s / {(sceneDuration / 1000).toFixed(1)}s
+          </span>
+        </div>
+        <div className="timeline-tools">
+          <button type="button" className={snapEnabled ? "active" : ""} onClick={toggleSnap}>
+            Snap {snapEnabled ? "on" : "off"}
+          </button>
+          <button type="button" onClick={() => splitClip(tMs)}>Split at playhead</button>
+          <button type="button" onClick={() => rippleDeleteGap(tMs)}>Ripple delete gap</button>
+          {selectedClip && (
+            <>
+              <label className="timeline-lane-select">
+                Track
+                <select
+                  aria-label="Move selected clip to lane"
+                  value={timelineLaneForObject(selectedClip)}
+                  onChange={(event) =>
+                    updateClip(selectedClip.id, { lane: event.target.value as TimelineLane })
+                  }
+                >
+                  {TIMELINE_LANES.map((lane) => (
+                    <option key={lane} value={lane}>{LANE_LABELS[lane]}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                aria-label={`Ripple delete ${selectedClip.name ?? selectedClip.type}`}
+                onClick={() => rippleDeleteClip(selectedClip.id)}
+              >
+                Ripple delete clip
+              </button>
+            </>
+          )}
+          <label className="timeline-zoom">
+            Zoom
+            <input
+              type="range"
+              min={0.5}
+              max={3}
+              step={0.25}
+              value={zoom}
+              onChange={(event) => setZoom(Number(event.target.value))}
+              aria-label="Timeline zoom"
+            />
+          </label>
+        </div>
       </div>
+      <div className="timeline-viewport">
+        <div
+          className="timeline-grid"
+          ref={gridRef}
+          style={{ width: `${zoom * 100}%` }}
+          onClick={changePlayhead}
+        >
+          <div className="timeline-ruler" aria-hidden="true">
+            {[0, 25, 50, 75, 100].map((mark) => (
+              <span key={mark} style={{ left: `${mark}%` }}>
+                {((sceneDuration * mark) / 100 / 1000).toFixed(1)}s
+              </span>
+            ))}
+          </div>
+          {TIMELINE_LANES.map((lane) => (
+            <div className="timeline-lane" key={lane} aria-label={`${LANE_LABELS[lane]} lane`}>
+              <div className="timeline-lane-name">{LANE_LABELS[lane]}</div>
+              <div className="timeline-lane-track">
+                {clips
+                  .filter((clip) => timelineLaneForObject(clip) === lane)
+                  .map((clip) => {
+                    const range = timelineClipRange(clip, sceneDuration);
+                    const left = (range.startMs / sceneDuration) * 100;
+                    const width = (Math.min(range.durationMs, sceneDuration - range.startMs) / sceneDuration) * 100;
+                    return (
+                      <div
+                        key={clip.id}
+                        className={`timeline-clip${clip.id === selectedClipId ? " selected" : ""}`}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          selectClip(clip.id);
+                        }}
+                        title={clip.name ?? clip.type}
+                      >
+                        <button
+                          type="button"
+                          className="timeline-trim-handle start"
+                          aria-label={`Trim start of ${clip.name ?? clip.type}`}
+                          onMouseDown={(event) => beginTrim(event, clip.id, "start")}
+                        />
+                        <span className="timeline-clip-label">{clip.name ?? clip.type}</span>
+                        <button
+                          type="button"
+                          className="timeline-trim-handle end"
+                          aria-label={`Trim end of ${clip.name ?? clip.type}`}
+                          onMouseDown={(event) => beginTrim(event, clip.id, "end")}
+                        />
+                      </div>
+                    );
+                  })}
+                <div
+                  className="timeline-playhead"
+                  style={{ left: `${(Math.min(tMs, sceneDuration) / sceneDuration) * 100}%` }}
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <span className="tl-time muted">
+        Export: {(projectTimeline(project).totalMs / 1000).toFixed(1)}s total
+      </span>
       {audioClips.length > 0 && (
         <section className="timeline-audio" aria-label="Audio timeline">
           <div className="timeline-region-row">
@@ -189,11 +432,7 @@ function AudioClipTrack({
   const updateAudioMetadata = useStudioStore((s) => s.updateAudioMetadata);
   const addAudioVolumeKeyframe = useStudioStore((s) => s.addAudioVolumeKeyframe);
   const updateObject = useStudioStore((s) => s.updateObject);
-  const clipStartMs = Math.max(0, (clip.timing?.start ?? 0) * 1000);
-  const durationMs = Math.max(
-    1,
-    (clip.timing?.duration ?? sceneDurationMs / 1000) * 1000,
-  );
+  const { startMs: clipStartMs, durationMs } = timelineClipRange(clip, sceneDurationMs);
   const metadata = getAudioClipMetadata(clip);
   const peaks = metadata.waveformPeaks ?? [];
   const keyframes = metadata.volumeKeyframes ?? [];

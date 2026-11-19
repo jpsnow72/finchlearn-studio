@@ -62,7 +62,9 @@ export function withAudioClipMetadata(
   patch: Partial<AudioClipMetadata>,
 ): AudioObject {
   const extensions: Extensions = { ...(object.extensions ?? {}) };
+  const rawMetadata = object.extensions?.[AUDIO_EXTENSION];
   extensions[AUDIO_EXTENSION] = {
+    ...(isRecord(rawMetadata) ? rawMetadata : {}),
     ...getAudioClipMetadata(object),
     ...patch,
   };
@@ -139,6 +141,38 @@ function withTrimmedAudio(
       duration: durationMs / 1000,
     },
   };
+}
+
+export function trimAudioClip(
+  object: AudioObject,
+  startMs: number,
+  durationMs: number,
+  sceneDurationMs: number,
+): AudioObject {
+  const clipStartMs = Math.max(0, (object.timing?.start ?? 0) * 1000);
+  const clipDurationMs = Math.max(
+    0,
+    (object.timing?.duration ?? Math.max(0, sceneDurationMs - clipStartMs) / 1000) * 1000,
+  );
+  if (!clipDurationMs) return object;
+
+  const fromMs = Math.min(clipDurationMs, Math.max(0, startMs - clipStartMs));
+  const toMs = Math.min(
+    clipDurationMs,
+    Math.max(fromMs, startMs + durationMs - clipStartMs),
+  );
+  const trimmedDurationMs = toMs - fromMs;
+  return withTrimmedAudio(
+    object,
+    clipStartMs + fromMs,
+    trimmedDurationMs,
+    fromMs / clipDurationMs,
+    toMs / clipDurationMs,
+    fromMs,
+    fromMs,
+    fromMs > 0,
+    toMs < clipDurationMs,
+  );
 }
 
 export function rippleDeleteAudioRegion(
