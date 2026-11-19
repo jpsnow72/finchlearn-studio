@@ -1,0 +1,1 @@
+{"description":"FinchLearn Studio speech recognition service: FFmpeg audio extraction plus a Whisper style transcription engine, returning word level timestamps (issue #43). No runtime dependencies; plain Node 22.","name":"finch-asr","private":true,"type":"module","version":"0.1.0"}

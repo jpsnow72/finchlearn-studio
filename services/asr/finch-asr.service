@@ -1,0 +1,17 @@
+[Unit]
+Description=FinchLearn Studio speech recognition service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/finch-asr
+Environment=PORT=8799
+Environment=JOB_DIR=/var/lib/finch-asr/jobs
+EnvironmentFile=/opt/finch-asr/asr.env
+ExecStart=/opt/node22/bin/node /opt/finch-asr/server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

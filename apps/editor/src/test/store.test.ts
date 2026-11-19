@@ -506,11 +506,172 @@ describe("voiceover takes (#31)", () => {
   });
 });
 
+describe("cue markers (#64)", () => {
+  it("adds, edits, sorts, and deletes markers on the current scene", () => {
+    const s = useStudioStore.getState();
+    const chapter = s.addCueMarker("chapter", 4000);
+    const check = s.addCueMarker("knowledge-check", 1000);
+    let scene = useStudioStore.getState().project.scenes[0] as {
+      cueMarkers?: { id?: string; type: string; atMs: number }[];
+    };
+    expect(scene.cueMarkers?.map((m) => m.id)).toEqual([check.id, chapter.id]);
+
+    s.updateCueMarker(check.id!, {
+      label: "Quick check",
+      question: {
+        prompt: "Ready?",
+        choices: [
+          { id: "y", label: "Yes" },
+          { id: "n", label: "No" },
+        ],
+        correctChoiceIds: ["y"],
+      },
+    });
+    scene = useStudioStore.getState().project.scenes[0] as typeof scene;
+    expect(scene.cueMarkers?.[0]).toMatchObject({ label: "Quick check" });
+
+    s.removeCueMarker(chapter.id!);
+    scene = useStudioStore.getState().project.scenes[0] as typeof scene;
+    expect(scene.cueMarkers).toHaveLength(1);
+  });
+
+  it("clamps marker times to the scene and shares undo with other edits", () => {
+    const s = useStudioStore.getState();
+    const marker = s.addCueMarker("modal", 999999);
+    const scene = useStudioStore.getState().project.scenes[0] as {
+      cueMarkers?: { atMs: number }[];
+    };
+    expect(scene.cueMarkers?.[0].atMs).toBeLessThanOrEqual(
+      useStudioStore.getState().project.scenes[0].durationMs,
+    );
+    expect(marker.atMs).toBe(scene.cueMarkers?.[0].atMs);
+    useStudioStore.getState().undo();
+    const after = useStudioStore.getState().project.scenes[0] as {
+      cueMarkers?: unknown[];
+    };
+    expect(after.cueMarkers).toBeUndefined();
+  });
+});
+
 describe("persistence", () => {
   it("round-trips the project through localStorage", () => {
     const s = useStudioStore.getState();
     s.setProjectName("Persist me");
     const raw = localStorage.getItem("ocf.video-studio.project.v1");
     expect(raw).toContain("Persist me");
+  });
+});
+
+describe("aspect (issue #13)", () => {
+  it("starts new projects at 16:9", () => {
+    expect(useStudioStore.getState().project.aspect).toBe("16:9");
+  });
+
+  it("switches aspect and reframes objects inside the new frame", () => {
+    const s = useStudioStore.getState();
+    const shape = makeStudioShape();
+    expect(shape.position).toEqual({ x: 300, y: 300, w: 240, h: 160 });
+    s.addObject(shape);
+    s.setProjectAspect("9:16");
+    const state = useStudioStore.getState();
+    expect(state.project.aspect).toBe("9:16");
+    expect(state.project.scenes[0].objects).toHaveLength(1);
+    expect(state.project.scenes[0].objects[0].position).toEqual({
+      x: 169,
+      y: 533,
+      w: 135,
+      h: 90,
+    });
+  });
+
+  it("treats switching to the current aspect as a no-op", () => {
+    const s = useStudioStore.getState();
+    const pastCount = useStudioStore.getState().pastProjects.length;
+    s.setProjectAspect("16:9");
+    expect(useStudioStore.getState().pastProjects).toHaveLength(pastCount);
+    expect(useStudioStore.getState().project.aspect).toBe("16:9");
+  });
+
+  it("undoes an aspect switch with its reframe", () => {
+    const s = useStudioStore.getState();
+    s.addObject(makeStudioShape());
+    s.setProjectAspect("1:1");
+    expect(useStudioStore.getState().project.aspect).toBe("1:1");
+    useStudioStore.getState().undo();
+    const project = useStudioStore.getState().project;
+    expect(project.aspect).toBe("16:9");
+    expect(project.scenes[0].objects[0].position).toEqual({
+      x: 300,
+      y: 300,
+      w: 240,
+      h: 160,
+    });
+  });
+
+  it("round-trips the aspect through localStorage persistence", () => {
+    const s = useStudioStore.getState();
+    s.setProjectAspect("9:16");
+    const raw = localStorage.getItem("ocf.video-studio.project.v1");
+    expect(raw).toContain('"aspect":"9:16"');
+  });
+
+  it("loads legacy projects without an aspect as 16:9 and keeps a stored aspect", () => {
+    const s = useStudioStore.getState();
+    const legacy = JSON.parse(JSON.stringify(s.project)) as typeof s.project;
+    delete legacy.aspect;
+    s.loadProject(legacy);
+    expect(useStudioStore.getState().project.aspect).toBe("16:9");
+
+    const portrait = { ...legacy, aspect: "9:16" as const };
+    s.loadProject(portrait);
+    expect(useStudioStore.getState().project.aspect).toBe("9:16");
+  });
+});
+
+describe("whiteboard draw-on (#52)", () => {
+  it("stores a draw-on treatment on the selected object only", () => {
+    const s = useStudioStore.getState();
+    const shape = makeStudioShape();
+    s.addObject(shape);
+    s.setObjectDrawOn(shape.id, { durationMs: 1800, handStyle: "chalk" });
+    const stored = useStudioStore.getState().project.scenes[0].objects.find(
+      (o) => o.id === shape.id,
+    );
+    expect(stored?.extensions?.["x-finch-studio"]?.drawOn).toEqual({
+      durationMs: 1800,
+      handStyle: "chalk",
+    });
+    // The treatment survives the localStorage persistence round trip.
+    const raw = localStorage.getItem("ocf.video-studio.project.v1") ?? "";
+    expect(JSON.parse(raw).scenes[0].objects[0].extensions["x-finch-studio"].drawOn)
+      .toEqual({ durationMs: 1800, handStyle: "chalk" });
+    s.setObjectDrawOn(shape.id, undefined);
+    const cleared = useStudioStore.getState().project.scenes[0].objects.find(
+      (o) => o.id === shape.id,
+    );
+    expect(cleared?.extensions?.["x-finch-studio"]?.drawOn).toBeUndefined();
+  });
+
+  it("leaves objects without a treatment untouched", () => {
+    const s = useStudioStore.getState();
+    const shape = makeStudioShape();
+    s.addObject(shape);
+    const stored = useStudioStore.getState().project.scenes[0].objects.find(
+      (o) => o.id === shape.id,
+    );
+    expect(stored?.extensions?.["x-finch-studio"]?.drawOn).toBeUndefined();
+  });
+
+  it("stores and clears the whiteboard scene style", () => {
+    const s = useStudioStore.getState();
+    const sceneId = s.project.scenes[0].id;
+    s.setSceneWhiteboard(sceneId, { surface: "#fdfdf8" });
+    expect(
+      useStudioStore.getState().project.scenes[0].extensions?.["x-finch-studio"]?.whiteboard,
+    ).toEqual({ surface: "#fdfdf8" });
+    s.setSceneWhiteboard(sceneId, undefined);
+    expect(
+      useStudioStore.getState().project.scenes[0].extensions?.["x-finch-studio"]?.whiteboard,
+    ).toBeUndefined();
   });
 });

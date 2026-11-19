@@ -12,6 +12,7 @@ import type { DescriptionExportMode } from "@finch-studio/audio";
 import { projectTimeline } from "@finch-studio/animation";
 import { uploadExportToCloud } from "../cloud";
 import { requestServerRender, serverRenderConfigured } from "../serverRender";
+import { projectAspect } from "@finch-studio/animation";
 import {
   buildFinishPayload,
   deliverFinish,
@@ -21,7 +22,7 @@ import {
   exportFileBaseName,
   EXPORT_PRESETS,
   formatCaptions,
-  getExportPreset,
+  resolveExportPreset,
   type ExportPresetId,
 } from "../exportPresets";
 import {
@@ -86,8 +87,13 @@ export function TopBar() {
     );
   };
 
+  const aspect = projectAspect(project);
+  // Video presets export at the project aspect dimensions (issue #13),
+  // for the browser paths and the server render alike.
+  const selectedPreset = resolveExportPreset(presetId, aspect);
+
   const doExport = async () => {
-    const preset = getExportPreset(presetId);
+    const preset = selectedPreset;
     if (
       preset.kind !== "captions" &&
       (captionOutput === "srt" || captionOutput === "vtt") &&
@@ -180,7 +186,7 @@ export function TopBar() {
   };
 
   const doServerRender = async () => {
-    const preset = getExportPreset(presetId);
+    const preset = selectedPreset;
     if (preset.kind !== "mp4" && preset.kind !== "video") {
       setStatus("Server rendering produces MP4. Choose a video preset first.");
       return;
@@ -474,6 +480,13 @@ export function TopBar() {
                 )}
               </div>
             )}
+            <p className="muted small">
+              Project aspect: {aspect}
+              {selectedPreset.width && selectedPreset.height
+                ? `, this preset exports at ${selectedPreset.width} x ${selectedPreset.height}.`
+                : "."}{" "}
+              Change the aspect with the Stage aspect control under the stage.
+            </p>
             <p className="muted small">
               Video downloads use MP4 when supported by your browser, otherwise WebM.
               GIF and audio-only encoding are not available in this client.

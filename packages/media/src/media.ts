@@ -24,6 +24,14 @@ export interface MediaAsset {
   /** Provenance line stamped at placement time (stock license, Unsplash credit). */
   credit?: string;
   tags: string[];
+  /** Content hash of the asset bytes, set at ingest. The ASR pipeline
+   * (transcript.ts, #43) keys transcript re-runs off this hash: a clip
+   * whose hash is unchanged never re-runs recognition. */
+  contentHash?: string;
+  /** Extension metadata in the established style. The clip transcript
+   * (#43) lives at extensions["x-finch-studio"].transcript; waveform
+   * peaks and edit metadata use the same slot. */
+  extensions?: Record<string, Record<string, unknown>>;
 }
 
 export interface UnsplashPhoto {

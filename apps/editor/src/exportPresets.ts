@@ -1,5 +1,9 @@
-import type { VideoProject } from "@finch-studio/core";
-import { projectTimeline } from "@finch-studio/animation";
+import type {
+  CharacterObject,
+  ProjectAspect,
+  VideoProject,
+} from "@finch-studio/core";
+import { projectTimeline, stageDimensions } from "@finch-studio/animation";
 import { getCaptionCues } from "./captions";
 
 export type ExportPresetId =
@@ -23,13 +27,71 @@ export interface ExportPreset {
   captionFormat?: "srt" | "vtt";
 }
 
-export function getRenderViewport(width: number, height: number) {
-  const scale = Math.min(width / 1280, height / 720);
+/**
+ * Fit a stage frame into an output frame, letterboxed and centered.
+ * The stage defaults to the 16:9 stage (1280x720); portrait and square
+ * projects pass their own stage dimensions so exports frame the stage
+ * the author actually saw (issue #13).
+ */
+export function getRenderViewport(
+  width: number,
+  height: number,
+  stage: { width: number; height: number } = { width: 1280, height: 720 },
+) {
+  const scale = Math.min(width / stage.width, height / stage.height);
   return {
     scale,
-    offsetX: (width - 1280 * scale) / 2,
-    offsetY: (height - 720 * scale) / 2,
+    offsetX: (width - stage.width * scale) / 2,
+    offsetY: (height - stage.height * scale) / 2,
   };
+}
+
+/** The stage frame a project renders from, for export callers. */
+export function projectStageDimensions(project: VideoProject): {
+  width: number;
+  height: number;
+} {
+  return stageDimensions(project);
+}
+
+function even(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+/**
+ * Output dimensions for a preset at a project aspect (issue #13).
+ * A preset fixes a resolution tier (its short side: 720 or 1080); the
+ * project aspect fixes the shape, so a 9:16 project exports portrait
+ * and a 1:1 project exports square instead of always 16:9. Presets
+ * without dimensions (GIF, audio, captions) pass through unchanged.
+ */
+export function exportDimensionsForAspect(
+  preset: ExportPreset,
+  aspect: ProjectAspect,
+): { width: number; height: number } | undefined {
+  if (preset.width === undefined || preset.height === undefined) {
+    return undefined;
+  }
+  const tier = Math.min(preset.width, preset.height);
+  switch (aspect) {
+    case "9:16":
+      return { width: tier, height: even((tier * 16) / 9) };
+    case "1:1":
+      return { width: tier, height: tier };
+    case "16:9":
+    default:
+      return { width: even((tier * 16) / 9), height: tier };
+  }
+}
+
+/** A preset with its dimensions resolved for the project's aspect. */
+export function resolveExportPreset(
+  id: ExportPresetId,
+  aspect: ProjectAspect,
+): ExportPreset {
+  const preset = getExportPreset(id);
+  const dims = exportDimensionsForAspect(preset, aspect);
+  return dims ? { ...preset, ...dims } : preset;
 }
 
 export const EXPORT_PRESETS: ExportPreset[] = [

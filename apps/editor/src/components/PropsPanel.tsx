@@ -15,6 +15,17 @@ import type {
 } from "@finch-studio/core";
 import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS } from "@finch-studio/core";
 import { useStudioStore, useCurrentScene, useSelectedObject } from "../store";
+import type { CourseObject } from "@finch-studio/core";
+import {
+  NEUTRAL_COLOR_CORRECTION,
+  computeAutoFixForObject,
+  getObjectColorCorrection,
+  isColorCorrectableObject,
+  isNeutralColorCorrection,
+  type ColorCorrection,
+} from "../colorCorrection";
+import { drawOnForObject, whiteboardForScene } from "../drawOn";
+import type { WhiteboardHandStyle } from "@finch-studio/motion";
 
 let speechCounter = 0;
 
@@ -30,6 +41,8 @@ export function PropsPanel({
   const updateObject = useStudioStore((s) => s.updateObject);
   const setObjectPresets = useStudioStore((s) => s.setObjectPresets);
   const setScenePresets = useStudioStore((s) => s.setScenePresets);
+  const setObjectDrawOn = useStudioStore((s) => s.setObjectDrawOn);
+  const setSceneWhiteboard = useStudioStore((s) => s.setSceneWhiteboard);
   const removeObject = useStudioStore((s) => s.removeObject);
   const setCharAnimation = useStudioStore((s) => s.setCharAnimation);
   const setCharFacing = useStudioStore((s) => s.setCharFacing);
@@ -56,12 +69,52 @@ export function PropsPanel({
   );
 
   if (!obj) {
+    const sceneWhiteboard = scene ? whiteboardForScene(scene) : undefined;
     return (
       <>
         {effectsPanel}
         <div className="panel props-panel">
           <div className="panel-title">Properties</div>
           <p className="muted">Select an object on the stage.</p>
+          {scene && (
+            <>
+              <div className="sub-title">Whiteboard scene</div>
+              <label className="chk">
+                <input
+                  type="checkbox"
+                  checked={sceneWhiteboard !== undefined}
+                  onChange={(e) =>
+                    setSceneWhiteboard(
+                      scene.id,
+                      e.target.checked
+                        ? { surface: scene.background ?? "#ffffff" }
+                        : undefined,
+                    )
+                  }
+                />
+                Whiteboard style for this scene
+              </label>
+              {sceneWhiteboard !== undefined && (
+                <label className="field">
+                  <span>Board surface</span>
+                  <input
+                    type="color"
+                    value={
+                      /^#[0-9a-fA-F]{6}$/.test(sceneWhiteboard.surface ?? "")
+                        ? (sceneWhiteboard.surface as string)
+                        : "#ffffff"
+                    }
+                    onChange={(e) =>
+                      setSceneWhiteboard(scene.id, { surface: e.target.value })
+                    }
+                  />
+                </label>
+              )}
+              <p className="muted">
+                Objects with draw-on enabled draw themselves in, in scene order.
+              </p>
+            </>
+          )}
         </div>
       </>
     );
@@ -104,6 +157,13 @@ export function PropsPanel({
           </label>
         ))}
       </div>
+
+      {(obj.type === "shape" || obj.type === "text" || obj.type === "image") && (
+        <DrawOnEditor
+          treatment={drawOnForObject(obj)}
+          onChange={(treatment) => setObjectDrawOn(obj.id, treatment)}
+        />
+      )}
 
       {char && (
         <>
@@ -235,12 +295,101 @@ export function PropsPanel({
         </label>
       )}
 
+      {isColorCorrectableObject(obj) && (
+        <ColorCorrectionSection
+          key={`${obj.id}-${JSON.stringify(getObjectColorCorrection(obj))}`}
+          object={obj}
+        />
+      )}
+
       <div className="danger-zone">
         <button type="button" onClick={() => removeObject(obj.id)}>
           Delete object
         </button>
       </div>
       </div>
+    </>
+  );
+}
+
+const COLOR_SLIDERS: {
+  key: keyof ColorCorrection;
+  label: string;
+}[] = [
+  { key: "exposure", label: "Exposure" },
+  { key: "contrast", label: "Contrast" },
+  { key: "temperature", label: "Temperature" },
+  { key: "tint", label: "Tint" },
+  { key: "saturation", label: "Saturation" },
+];
+
+function ColorCorrectionSection({ object }: { object: CourseObject }) {
+  const setObjectColorCorrection = useStudioStore(
+    (s) => s.setObjectColorCorrection,
+  );
+  const stored = getObjectColorCorrection(object);
+  const [draft, setDraft] = useState<ColorCorrection>(stored);
+  const [autoFixing, setAutoFixing] = useState(false);
+
+  const commit = (next: ColorCorrection) => {
+    setDraft(next);
+    setObjectColorCorrection(object.id, next);
+  };
+
+  return (
+    <>
+      <div className="sub-title">Colour</div>
+      <p className="muted">
+        Basic correction for this {object.type === "video" ? "footage" : "image"}.
+        It is non-destructive and can be undone.
+      </p>
+      {COLOR_SLIDERS.map(({ key, label }) => (
+        <label key={key} className="field">
+          <span>
+            {label}: {draft[key]}
+          </span>
+          <input
+            type="range"
+            min={-100}
+            max={100}
+            step={1}
+            value={draft[key]}
+            aria-label={label}
+            onChange={(e) =>
+              setDraft({ ...draft, [key]: Number(e.target.value) })
+            }
+            onPointerUp={() => commit(draft)}
+            onKeyUp={() => commit(draft)}
+            onBlur={() => commit(draft)}
+          />
+        </label>
+      ))}
+      <div className="field-row">
+        <button
+          type="button"
+          disabled={autoFixing}
+          onClick={() => {
+            setAutoFixing(true);
+            void computeAutoFixForObject(object)
+              .then((next) => commit(next))
+              .finally(() => setAutoFixing(false));
+          }}
+        >
+          {autoFixing ? "Fixing..." : "Auto fix"}
+        </button>
+        <button
+          type="button"
+          disabled={isNeutralColorCorrection(draft)}
+          onClick={() => commit({ ...NEUTRAL_COLOR_CORRECTION })}
+        >
+          Reset
+        </button>
+      </div>
+      <p className="muted">
+        Auto fix reads the image where the browser allows it, and uses a
+        gentle preset otherwise. Footage uses the preset until a preview
+        frame is available.
+      </p>
     </>
   );
 }
@@ -346,6 +495,93 @@ function EffectsEditor({
           </div>
         );
       })}
+    </>
+  );
+}
+
+function DrawOnEditor({
+  treatment,
+  onChange,
+}: {
+  treatment: ReturnType<typeof drawOnForObject>;
+  onChange: (treatment: ReturnType<typeof drawOnForObject>) => void;
+}) {
+  const enabled = treatment !== undefined;
+  const current = treatment ?? { durationMs: 2000, handStyle: "marker" as WhiteboardHandStyle };
+  const update = (patch: Partial<typeof current>) => onChange({ ...current, ...patch });
+  return (
+    <>
+      <div className="sub-title">Whiteboard draw-on</div>
+      <label className="chk">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) =>
+            onChange(e.target.checked ? { durationMs: 2000, handStyle: "marker" } : undefined)
+          }
+        />
+        Draw this object on
+      </label>
+      {enabled && (
+        <>
+          <label className="field">
+            <span>Hand style</span>
+            <select
+              value={current.handStyle ?? "marker"}
+              onChange={(e) => update({ handStyle: e.target.value as WhiteboardHandStyle })}
+            >
+              <option value="marker">Marker</option>
+              <option value="chalk">Chalk</option>
+              <option value="pen">Pen</option>
+            </select>
+          </label>
+          <label className="field-inline">
+            Draw duration
+            <input
+              type="number"
+              min={1}
+              step={100}
+              defaultValue={current.durationMs ?? 2000}
+              key={`drawon-duration-${current.durationMs ?? 2000}`}
+              onBlur={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value > 0) update({ durationMs: value });
+              }}
+            />
+            ms
+          </label>
+          <label className="field-inline">
+            Hold before erase
+            <input
+              type="number"
+              min={0}
+              step={100}
+              defaultValue={current.eraseDelayMs ?? 0}
+              key={`drawon-hold-${current.eraseDelayMs ?? 0}`}
+              onBlur={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value >= 0) update({ eraseDelayMs: value });
+              }}
+            />
+            ms
+          </label>
+          <label className="field-inline">
+            Erase duration
+            <input
+              type="number"
+              min={0}
+              step={100}
+              defaultValue={current.eraseDurationMs ?? 0}
+              key={`drawon-erase-${current.eraseDurationMs ?? 0}`}
+              onBlur={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value >= 0) update({ eraseDurationMs: value });
+              }}
+            />
+            ms (0 keeps the object)
+          </label>
+        </>
+      )}
     </>
   );
 }

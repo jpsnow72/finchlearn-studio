@@ -9,8 +9,12 @@
  * exported frames must match the stage canvas, pixel for pixel within a
  * tight tolerance, at sampled timestamps).
  */
-import type { StudioProject } from "@finch-studio/schema";
-import { projectTimeline } from "@finch-studio/schema";
+import type { StudioProject, StudioScene } from "@finch-studio/schema";
+import {
+  effectiveAngleOffsetMs,
+  normalizeMulticamSegments,
+  projectTimeline,
+} from "@finch-studio/schema";
 
 export interface RenderSegment {
   sceneId: string;
@@ -37,6 +41,54 @@ export function planSegments(project: StudioProject): RenderSegment[] {
     endMs: t.endMs,
     cacheKey: `seg-${t.scene.id}-${hashString(JSON.stringify(t.scene))}`,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Multicam cuts (#47)
+// ---------------------------------------------------------------------------
+
+export interface MulticamCut {
+  sceneId: string;
+  angleId: string;
+  /** Footage element / object id carrying the angle. */
+  sourceId: string;
+  /** Scene local start and end of the cut. */
+  startMs: number;
+  endMs: number;
+  /** Source times matching startMs and endMs (offset applied). */
+  sourceStartMs: number;
+  sourceEndMs: number;
+}
+
+/**
+ * The angle cuts a render must show for one scene, in scene local
+ * time. Both export paths resolve multicam through this plan (the
+ * editor paths via the same segment resolution in the schema
+ * package), so preview and exports cannot diverge. A scene without
+ * a multicam group plans no cuts and renders as before. Segment
+ * changes alter the scene JSON, so planSegments cache keys above
+ * already change when a cut or offset changes.
+ */
+export function planMulticamCuts(scene: StudioScene): MulticamCut[] {
+  const group = scene.multicam;
+  if (!group) return [];
+  const byId = new Map(group.angles.map((a) => [a.id, a]));
+  return normalizeMulticamSegments(group.segments).flatMap((seg) => {
+    const angle = byId.get(seg.angleId);
+    if (!angle) return [];
+    const offset = effectiveAngleOffsetMs(angle);
+    return [
+      {
+        sceneId: scene.id,
+        angleId: angle.id,
+        sourceId: angle.sourceId,
+        startMs: seg.startMs,
+        endMs: seg.endMs,
+        sourceStartMs: seg.startMs + offset,
+        sourceEndMs: seg.endMs + offset,
+      },
+    ];
+  });
 }
 
 /** Which path a render takes, and why (the #48 promotion rule). */

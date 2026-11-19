@@ -14,7 +14,7 @@
  * audio actions; levels are computed by @finch-studio/audio.
  */
 import { useEffect, useState } from "react";
-import type { AudioObject } from "@finch-studio/core";
+import type { AudioObject, CourseObject, VideoObject } from "@finch-studio/core";
 import { DEFAULT_SILENCE_OPTIONS } from "@finch-studio/audio";
 import {
   analyzeClipSilence,
@@ -28,14 +28,44 @@ import {
   stopCleanVoicePreview,
   type CleanVoiceCompareMode,
 } from "../cleanVoicePreview";
+import {
+  getObjectTranscript,
+  objectTranscriptStatus,
+  retryObjectTranscription,
+  transcriptStatusLabel,
+} from "../transcription";
 import { timelineLaneForObject, useStudioStore, useCurrentScene, makeStudioAudio } from "../store";
 
-const ROLE_OPTIONS: { value: AudioClipRole; label: string }[] = [
-  { value: "voice", label: "Voice" },
-  { value: "music", label: "Music" },
-  { value: "sfx", label: "Sound effect" },
-  { value: "description", label: "Audio description" },
-];
+/** ASR status line for one clip (issue #43): transcribing, ready, or
+ * failed with a retry. The transcript itself lives on the object
+ * under x-finch-studio; the caption editor (#44) and rough cut (#45)
+ * read it from there. */
+function TranscriptStatusRow({ object }: { object: CourseObject }) {
+  const setObjectTranscript = useStudioStore((s) => s.setObjectTranscript);
+  const transcript = getObjectTranscript(object);
+  const status = objectTranscriptStatus(object);
+  return (
+    <p className="muted">
+      Transcript: {transcriptStatusLabel(status)}
+      {status === "ready" && transcript ? ` (${transcript.words.length} words)` : ""}
+      {status === "failed" && transcript?.error ? ` ${transcript.error}` : ""}
+      {status === "failed" && (
+        <>
+          {" "}
+          <button
+            type="button"
+            onClick={() => {
+              const retry = retryObjectTranscription(object, new Date().toISOString());
+              if (retry) setObjectTranscript(object.id, retry);
+            }}
+          >
+            Retry transcription
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
 
 export function AudioPanel({ tMs }: { tMs: number }) {
   const scene = useCurrentScene();
@@ -64,6 +94,9 @@ export function AudioPanel({ tMs }: { tMs: number }) {
     minSilenceMs: Math.max(0, minSilenceMs || 0),
     keepPauseMs: Math.max(0, keepPauseMs || 0),
   };
+  const footage = (scene?.objects ?? []).filter(
+    (o): o is VideoObject => o.type === "video",
+  );
 
   return (
     <div className="panel">
@@ -301,9 +334,21 @@ export function AudioPanel({ tMs }: { tMs: number }) {
                 </div>
               );
             })()}
+            <TranscriptStatusRow object={clip} />
           </div>
         );
       })}
+      {footage.length > 0 && (
+        <div>
+          <div className="panel-title">Speech footage</div>
+          {footage.map((clip) => (
+            <div key={clip.id} className="audio-clip">
+              <div className="audio-clip-name">{clip.name ?? "Footage clip"}</div>
+              <TranscriptStatusRow object={clip} />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="audio-add">
         <input
           type="url"

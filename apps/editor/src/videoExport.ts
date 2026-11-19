@@ -16,6 +16,11 @@
  * composited per frame. Path movement and facing are honored.
  *
  * Multi-scene: scenes render per projectTimeline with their seam transitions.
+ *
+ * Footage (issue #25): video objects render through the shared footage
+ * resolver (trim, speed, freeze, crop, PiP position) and their audio is
+ * mixed in buildProjectAudio at the clip's speed and volume, so these
+ * paths and the server render (this same code, headless) stay in parity.
  * Audio mixes through buildProjectAudio (shared by both client paths
  * and by the server render host): narration, clips with fades and
  * volume keyframes, music ducking, and per clip Clean Voice (#29).
@@ -23,8 +28,14 @@
 import type {
   CharacterObject,
   CourseObject,
+  VideoObject,
   VideoProject,
 } from "@finch-studio/core";
+import { cropRectToPixels, footageSourceAt } from "@finch-studio/schema";
+import {
+  footageClipStartMs,
+  resolveFootageObject,
+} from "./footageEditing";
 import {
   projectTimeline,
   transitionAlpha,
@@ -56,9 +67,25 @@ import {
   type CleanVoiceContext,
   type DescriptionExportMode,
 } from "@finch-studio/audio";
+import {
+  correctedDrawableFor,
+  getObjectColorCorrection,
+} from "./colorCorrection";
+import { isMulticamObjectVisibleAt } from "./multicam";
+import {
+  handStrokeWidth,
+  shapeOutlineStrokes,
+  visibleStrokes,
+  wipeVisibleRect,
+} from "@finch-studio/motion";
+import {
+  drawOnForObject,
+  sampleDrawOnForObject,
+  whiteboardSurfaceForScene,
+} from "./drawOn";
 import { ensureLineAudio } from "./narration";
 import { getCaptionAt, getCaptionStyle } from "./captions";
-import { getRenderViewport } from "./exportPresets";
+import { getRenderViewport, projectStageDimensions } from "./exportPresets";
 import { bundledBackgroundFromRef } from "./content/bundledContent";
 import type { AudioObject } from "@finch-studio/core";
 
@@ -213,9 +240,15 @@ function drawBubble(
 }
 
 
+interface ImageSprite {
+  img: HTMLImageElement;
+  /** Corrected copy of the image, when the object carries a correction. */
+  corrected: HTMLCanvasElement | null;
+}
+
 interface ImageSprites {
   /** Image objects by object id (bundled props and placed media). */
-  objects: Map<string, HTMLImageElement>;
+  objects: Map<string, ImageSprite>;
   /** Bundled background art by scene id (issue #101). */
   backgrounds: Map<string, HTMLImageElement>;
 }
@@ -231,9 +264,15 @@ async function loadSpriteImage(src: string): Promise<HTMLImageElement | null> {
   }
 }
 
-/** Preload every image object and bundled scene background for export. */
+/**
+ * Preload every image object and bundled scene background for export,
+ * building the corrected copy for any object with a colour correction
+ * (issue #46). The correction uses the same canonical matrix as the
+ * stage preview. Images that fail to load are skipped, matching how a
+ * dead audio clip never kills an export.
+ */
 async function buildImageSprites(project: VideoProject): Promise<ImageSprites> {
-  const objects = new Map<string, HTMLImageElement>();
+  const objects = new Map<string, ImageSprite>();
   const backgrounds = new Map<string, HTMLImageElement>();
   const jobs: Promise<void>[] = [];
   for (const scene of project.scenes) {
@@ -248,7 +287,14 @@ async function buildImageSprites(project: VideoProject): Promise<ImageSprites> {
       const resource = (o as { resource?: string }).resource;
       if (!resource) continue;
       jobs.push(loadSpriteImage(resource).then((img) => {
-        if (img) objects.set(o.id, img);
+        if (!img) return;
+        const corrected = correctedDrawableFor(
+          img,
+          img.naturalWidth,
+          img.naturalHeight,
+          getObjectColorCorrection(o),
+        );
+        objects.set(o.id, { img, corrected });
       }));
     }
   }
@@ -256,15 +302,147 @@ async function buildImageSprites(project: VideoProject): Promise<ImageSprites> {
   return { objects, backgrounds };
 }
 
+/**
+ * Footage videos for export (issue #25): one offscreen video element
+ * per video object, preloaded before the frame loop. Frames are drawn
+ * from these elements after syncFootageVideos positions them at the
+ * resolved source time for the frame being rendered.
+ */
+async function loadFootageVideos(
+  project: VideoProject,
+): Promise<Map<string, HTMLVideoElement>> {
+  const videos = new Map<string, HTMLVideoElement>();
+  const jobs: Promise<void>[] = [];
+  for (const scene of project.scenes) {
+    for (const o of scene.objects) {
+      if (o.type !== "video") continue;
+      const resource = (o as VideoObject).resource;
+      if (!resource || videos.has(o.id)) continue;
+      const el = document.createElement("video");
+      el.muted = true;
+      el.playsInline = true;
+      el.preload = "auto";
+      if (/^https?:\/\//i.test(resource)) el.crossOrigin = "anonymous";
+      el.src = resource;
+      videos.set(o.id, el);
+      jobs.push(
+        new Promise<void>((resolve) => {
+          const done = () => resolve();
+          el.addEventListener("loadedmetadata", done, { once: true });
+          el.addEventListener("error", done, { once: true });
+          setTimeout(done, 5000);
+        }),
+      );
+    }
+  }
+  await Promise.all(jobs);
+  return videos;
+}
+
+/** Seek a footage element to a source time, waiting for the seek. */
+function seekFootageVideo(el: HTMLVideoElement, sourceMs: number): Promise<void> {
+  const targetSec = Math.max(0, sourceMs / 1000);
+  if (el.readyState < 1 || Math.abs(el.currentTime - targetSec) < 0.04) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const done = () => resolve();
+    el.addEventListener("seeked", done, { once: true });
+    setTimeout(done, 300);
+    try {
+      el.currentTime = targetSec;
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
+ * Position every active footage element in a scene at the source time
+ * the shared footage resolver assigns to this scene-local time. In
+ * seek mode (offline render) each seek is awaited so the drawn frame
+ * is exact; in play mode (real time capture) the element plays at the
+ * clip's speed and is drift corrected, and a freeze hold pauses it on
+ * the frozen frame.
+ */
+async function syncFootageVideos(
+  videos: Map<string, HTMLVideoElement>,
+  scene: { objects: CourseObject[]; durationMs: number },
+  localT: number,
+  mode: "seek" | "play",
+): Promise<void> {
+  const jobs: Promise<void>[] = [];
+  for (const o of scene.objects) {
+    if (o.type !== "video") continue;
+    const el = videos.get(o.id);
+    if (!el) continue;
+    const range = timelineClipRange(o, scene.durationMs);
+    if (localT < range.startMs || localT >= range.startMs + range.durationMs) {
+      if (!el.paused) el.pause();
+      continue;
+    }
+    const resolved = resolveFootageObject(o as VideoObject);
+    const at = footageSourceAt(resolved, localT - footageClipStartMs(o as VideoObject));
+    el.playbackRate = resolved.speed;
+    if (mode === "seek" || at.frozen || at.ended) {
+      if (!el.paused) el.pause();
+      jobs.push(seekFootageVideo(el, at.sourceMs));
+    } else {
+      if (Math.abs(el.currentTime - at.sourceMs / 1000) > 0.35) {
+        jobs.push(seekFootageVideo(el, at.sourceMs));
+      }
+      if (el.paused) void el.play().catch(() => {});
+    }
+  }
+  await Promise.all(jobs);
+}
+
 function drawObject(
   ctx: CanvasRenderingContext2D,
   sprites: Map<string, CharFrames>,
   o: CourseObject,
   tMs: number,
-  images?: Map<string, HTMLImageElement>,
+  images?: Map<string, ImageSprite>,
+  videos?: Map<string, HTMLVideoElement>,
+  range?: { startMs: number; durationMs: number },
 ): void {
   if (o.visible === false) return;
+  // Whiteboard draw-on (issue #52): the same pure sampler the stage
+  // uses, fed the same clip range, so exports match the stage frame
+  // for frame at any timestamp.
+  const clipRange = range ?? {
+    startMs: (o.timing?.start ?? 0) * 1000,
+    durationMs: (o.timing?.duration ?? 5) * 1000,
+  };
+  const drawSample = sampleDrawOnForObject(o, clipRange, tMs);
+  if (drawSample && !drawSample.visible) return;
+  const drawTreatment = drawSample ? drawOnForObject(o) : undefined;
   switch (o.type) {
+    case "video": {
+      // Footage frame (issue #25): the element was synced to the
+      // resolved source time for this frame; draw it through the crop
+      // rectangle into the object's stage position (its PiP layout
+      // when a preset was applied).
+      const el = videos?.get(o.id);
+      if (!el || el.videoWidth === 0 || el.videoHeight === 0) break;
+      const pos = o.position ?? {};
+      const resolved = resolveFootageObject(o as VideoObject);
+      const src = resolved.crop
+        ? cropRectToPixels(resolved.crop, el.videoWidth, el.videoHeight)
+        : { x: 0, y: 0, w: el.videoWidth, h: el.videoHeight };
+      ctx.drawImage(
+        el,
+        src.x,
+        src.y,
+        src.w,
+        src.h,
+        pos.x ?? 0,
+        pos.y ?? 0,
+        pos.w ?? 320,
+        pos.h ?? 180,
+      );
+      break;
+    }
     case "character": {
       const sprite = sprites.get(o.id);
       if (sprite) drawCharacter(ctx, sprite, o as CharacterObject, tMs);
@@ -280,6 +458,12 @@ function drawObject(
       ctx.textBaseline = "top";
       const w = pos.w ?? 400;
       const h = pos.h ?? 96;
+      if (drawSample && drawSample.progress < 1) {
+        const rect = wipeVisibleRect(drawSample.progress, w, h);
+        ctx.beginPath();
+        ctx.rect((pos.x ?? 0) + rect.x, (pos.y ?? 0) + rect.y, rect.w, rect.h);
+        ctx.clip();
+      }
       const words = text.split(/\s+/);
       const lineH = 30;
       let line = "";
@@ -301,15 +485,64 @@ function drawObject(
       break;
     }
     case "image": {
-      const img = images?.get(o.id);
-      if (!img) break;
+      const sprite = images?.get(o.id);
+      if (!sprite) break;
       const pos = o.position ?? {};
-      ctx.drawImage(img, pos.x ?? 0, pos.y ?? 0, pos.w ?? 200, pos.h ?? 100);
+      const w = pos.w ?? 200;
+      const h = pos.h ?? 100;
+      ctx.save();
+      if (drawSample && drawSample.progress < 1) {
+        const rect = wipeVisibleRect(drawSample.progress, w, h);
+        ctx.beginPath();
+        ctx.rect((pos.x ?? 0) + rect.x, (pos.y ?? 0) + rect.y, rect.w, rect.h);
+        ctx.clip();
+      }
+      const source = sprite.corrected ?? sprite.img;
+      const iw = sprite.img.naturalWidth || w;
+      const ih = sprite.img.naturalHeight || h;
+      // objectFit: contain, matching the stage renderer.
+      const scale = Math.min(w / iw, h / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      ctx.drawImage(
+        source,
+        (pos.x ?? 0) + (w - dw) / 2,
+        (pos.y ?? 0) + (h - dh) / 2,
+        dw,
+        dh,
+      );
+      ctx.restore();
       break;
     }
     case "shape": {
       const pos = o.position ?? {};
       const fill = (o as { fill?: string }).fill ?? "#3b82f6";
+      if (drawSample && drawSample.progress < 1) {
+        // Mid draw-on: stroke the revealed outline in the fill colour
+        // (the marker colour); the filled shape lands at progress 1.
+        const shapeKind = (o as { shape?: string }).shape;
+        const kind =
+          shapeKind === "ellipse" ? "ellipse" : shapeKind === "line" ? "line" : "rect";
+        const strokes = visibleStrokes(
+          shapeOutlineStrokes(kind, pos.w ?? 0, pos.h ?? 0),
+          drawSample.progress,
+        );
+        ctx.save();
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = handStrokeWidth(drawTreatment?.handStyle, 4);
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        for (const points of strokes) {
+          ctx.beginPath();
+          points.forEach((p, i) => {
+            if (i === 0) ctx.moveTo((pos.x ?? 0) + p.x, (pos.y ?? 0) + p.y);
+            else ctx.lineTo((pos.x ?? 0) + p.x, (pos.y ?? 0) + p.y);
+          });
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
       ctx.save();
       ctx.fillStyle = fill;
       if ((o as { shape?: string }).shape === "ellipse") {
@@ -619,6 +852,46 @@ async function renderProjectAudio(
     }
   }
 
+  // Footage audio (issue #25): each play segment of a video clip is
+  // scheduled at the clip's speed and volume; freeze segments are
+  // silent because no segment is scheduled across the hold.
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "video") continue;
+      const vo = o as VideoObject;
+      if (!vo.resource) continue;
+      const resolved = resolveFootageObject(vo);
+      if (resolved.volume <= 0) continue;
+      const range = timelineClipRange(o, entry.scene.durationMs);
+      let buf: AudioBuffer;
+      try {
+        const res = await fetch(vo.resource);
+        if (!res.ok) continue;
+        buf = await ctx.decodeAudioData(await res.arrayBuffer());
+      } catch {
+        continue; // A dead footage URL must not kill the whole export.
+      }
+      for (const segment of resolved.segments) {
+        if (segment.kind !== "play") continue;
+        const offsetSec = segment.sourceStartMs / 1000;
+        const sourceDurSec = (segment.sourceEndMs - segment.sourceStartMs) / 1000;
+        if (offsetSec >= buf.duration || sourceDurSec <= 0) continue;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = segment.speed;
+        const gain = ctx.createGain();
+        gain.gain.value = resolved.volume;
+        src.connect(gain).connect(ctx.destination);
+        src.start(
+          (entry.startMs + range.startMs + segment.timelineStartMs) / 1000,
+          offsetSec,
+          Math.min(sourceDurSec, buf.duration - offsetSec),
+        );
+        scheduled++;
+      }
+    }
+  }
+
   if (scheduled === 0) return null;
   return ctx.startRendering();
 }
@@ -780,7 +1053,7 @@ export async function exportVideoProject(
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
     throw new Error("The selected video preset has invalid dimensions. Choose another preset.");
   }
-  const viewport = getRenderViewport(width, height);
+  const viewport = getRenderViewport(width, height, projectStageDimensions(project));
   const { scenes: tl, totalMs } = projectTimeline(project);
   if (tl.length === 0) throw new Error("Project has no scenes.");
   const totalFrames = Math.max(1, Math.round((totalMs / 1000) * FPS));
@@ -800,6 +1073,7 @@ export async function exportVideoProject(
     }),
   );
   const imageSprites = await buildImageSprites(project);
+  const footageVideos = await loadFootageVideos(project);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -882,7 +1156,7 @@ export async function exportVideoProject(
   ) => {
     target.save();
     target.setTransform(1, 0, 0, 1, 0, 0);
-    target.fillStyle = scene.background ?? "#ffffff";
+    target.fillStyle = whiteboardSurfaceForScene(scene) ?? scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
     const bgImage = imageSprites.backgrounds.get(scene.id);
     if (bgImage) target.drawImage(bgImage, 0, 0, width, height);
@@ -896,8 +1170,15 @@ export async function exportVideoProject(
     );
     for (const o of scene.objects) {
       const range = timelineClipRange(o, scene.durationMs);
-      if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
-        drawObject(target, sprites, o, localT, imageSprites.objects);
+      // Multicam (#47): exports resolve the same angle segments as
+      // the stage. The server path runs this same code in the render
+      // host, so it resolves them identically.
+      if (
+        localT >= range.startMs &&
+        localT < range.startMs + range.durationMs &&
+        isMulticamObjectVisibleAt(scene, o, localT)
+      ) {
+        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range);
       }
     }
     target.restore();
@@ -923,6 +1204,7 @@ export async function exportVideoProject(
       const seg = tl[segIdx];
       const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
 
+      await syncFootageVideos(footageVideos, seg.scene, localT, "play");
       const progress = transitionAlpha(project, tMs);
       const transition = seg.scene.transition ?? "cut";
       if (segIdx > 0 && progress < 1 && transition !== "cut") {
@@ -931,6 +1213,7 @@ export async function exportVideoProject(
           prev.scene.durationMs,
           tMs - prev.startMs,
         );
+        await syncFootageVideos(footageVideos, prev.scene, Math.max(0, prevLocal), "play");
         renderSceneFrame(sctx, seg.scene, localT);
         if (transition === "fade") {
           renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
@@ -976,6 +1259,7 @@ export async function exportVideoProject(
     throw error;
   } finally {
     stream.getTracks().forEach((track) => track.stop());
+    footageVideos.forEach((el) => el.pause());
   }
 }
 
@@ -1002,7 +1286,7 @@ export async function exportMp4Project(
   const webm = options.container === "webm";
   const audioBuffer = await buildProjectAudio(project, options.audioDescriptionMode ?? "mixed");
   const { width, height } = dimensions;
-  const viewport = getRenderViewport(width, height);
+  const viewport = getRenderViewport(width, height, projectStageDimensions(project));
   const { scenes: tl, totalMs } = projectTimeline(project);
   if (tl.length === 0) throw new Error("Project has no scenes.");
   const totalFrames = Math.max(1, Math.round((totalMs / 1000) * FPS));
@@ -1021,6 +1305,7 @@ export async function exportMp4Project(
     }),
   );
   const imageSprites = await buildImageSprites(project);
+  const footageVideos = await loadFootageVideos(project);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -1045,7 +1330,7 @@ export async function exportMp4Project(
   ) => {
     target.save();
     target.setTransform(1, 0, 0, 1, 0, 0);
-    target.fillStyle = scene.background ?? "#ffffff";
+    target.fillStyle = whiteboardSurfaceForScene(scene) ?? scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
     const bgImage = imageSprites.backgrounds.get(scene.id);
     if (bgImage) target.drawImage(bgImage, 0, 0, width, height);
@@ -1054,8 +1339,15 @@ export async function exportMp4Project(
     );
     for (const o of scene.objects) {
       const range = timelineClipRange(o, scene.durationMs);
-      if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
-        drawObject(target, sprites, o, localT, imageSprites.objects);
+      // Multicam (#47): exports resolve the same angle segments as
+      // the stage. The server path runs this same code in the render
+      // host, so it resolves them identically.
+      if (
+        localT >= range.startMs &&
+        localT < range.startMs + range.durationMs &&
+        isMulticamObjectVisibleAt(scene, o, localT)
+      ) {
+        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range);
       }
     }
     target.restore();
@@ -1095,11 +1387,13 @@ export async function exportMp4Project(
     }
     const seg = tl[segIdx];
     const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
+    await syncFootageVideos(footageVideos, seg.scene, localT, "seek");
     const progress = transitionAlpha(project, tMs);
     const transition = seg.scene.transition ?? "cut";
     if (segIdx > 0 && progress < 1 && transition !== "cut") {
       const prev = tl[segIdx - 1];
       const prevLocal = Math.min(prev.scene.durationMs, tMs - prev.startMs);
+      await syncFootageVideos(footageVideos, prev.scene, Math.max(0, prevLocal), "seek");
       renderSceneFrame(sctx, seg.scene, localT);
       if (transition === "fade") {
         renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
@@ -1137,6 +1431,7 @@ export async function exportMp4Project(
     onProgress?.((f + 1) / totalFrames);
   }
 
+  footageVideos.forEach((el) => el.pause());
   await output.finalize();
   const buffer = (output.target as InstanceType<typeof BufferTarget>).buffer;
   if (!buffer) throw new Error("The MP4 encoder produced no output.");
