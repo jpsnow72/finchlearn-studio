@@ -235,6 +235,21 @@ describe("timeline", () => {
     });
   });
 
+  it("keeps the original scene bound while trimming its longest clip", () => {
+    const store = useStudioStore.getState();
+    store.addObject(videoClip("longest", 0, 8));
+    store.beginTimelineEdit();
+    store.updateTimelineClip("longest", { durationMs: 6000 }, false);
+    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(6000);
+
+    store.updateTimelineClip("longest", { durationMs: 8000 }, false);
+    store.endTimelineEdit();
+
+    const scene = useStudioStore.getState().project.scenes[0];
+    expect(scene.durationMs).toBe(8000);
+    expect(scene.objects[0].timing?.duration).toBe(8);
+  });
+
   it("splits a clip and shares undo and redo with scene edits", () => {
     const store = useStudioStore.getState();
     const sceneId = store.project.scenes[0].id;

@@ -25,6 +25,8 @@ interface ClipDrag {
   startMs: number;
   durationMs: number;
   pointerX: number;
+  sceneDurationMs: number;
+  msPerPixel: number;
 }
 
 export function Timeline({
@@ -66,23 +68,21 @@ export function Timeline({
   useEffect(() => {
     const move = (event: MouseEvent) => {
       const active = drag.current;
-      const bounds = gridRef.current?.getBoundingClientRect();
-      const trackWidth = (bounds?.width ?? 0) - 70;
-      if (!active || !bounds || trackWidth <= 0) return;
-      const deltaMs = ((event.clientX - active.pointerX) / trackWidth) * sceneDuration;
+      if (!active) return;
+      const deltaMs = (event.clientX - active.pointerX) * active.msPerPixel;
       const edgeMs = active.edge === "start"
         ? active.startMs + deltaMs
         : active.startMs + active.durationMs + deltaMs;
       let snappedEdge = edgeMs;
       if (snapEnabled) {
-        const toleranceMs = (8 / trackWidth) * sceneDuration;
+        const toleranceMs = 8 * active.msPerPixel;
         const otherEdges = clips
           .filter((clip) => clip.id !== active.id)
           .flatMap((clip) => {
-            const range = timelineClipRange(clip, sceneDuration);
+            const range = timelineClipRange(clip, active.sceneDurationMs);
             return [range.startMs, range.startMs + range.durationMs];
           });
-        const candidates = [0, sceneDuration, tMs, ...otherEdges];
+        const candidates = [0, active.sceneDurationMs, tMs, ...otherEdges];
         snappedEdge = snapTimelineTime(edgeMs, candidates, toleranceMs);
       }
       if (active.edge === "start") {
@@ -96,7 +96,10 @@ export function Timeline({
         active.startMs = startMs;
         active.durationMs = durationMs;
       } else {
-        const durationMs = Math.max(100, Math.min(sceneDuration, snappedEdge) - active.startMs);
+        const durationMs = Math.max(
+          100,
+          Math.min(active.sceneDurationMs, snappedEdge) - active.startMs,
+        );
         updateClip(active.id, {
           durationMs,
           trimEdge: "end",
@@ -115,7 +118,7 @@ export function Timeline({
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", end);
     };
-  }, [clips, endTimelineEdit, sceneDuration, snapEnabled, tMs, updateClip, zoom]);
+  }, [clips, endTimelineEdit, snapEnabled, tMs, updateClip]);
 
   const beginTrim = (
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -127,12 +130,16 @@ export function Timeline({
     const clip = clips.find((item) => item.id === clipId);
     if (!clip) return;
     const range = timelineClipRange(clip, sceneDuration);
+    const trackWidth = (gridRef.current?.getBoundingClientRect().width ?? 0) - 70;
+    if (trackWidth <= 0) return;
     drag.current = {
       id: clip.id,
       edge,
       startMs: range.startMs,
       durationMs: range.durationMs,
       pointerX: event.clientX,
+      sceneDurationMs: sceneDuration,
+      msPerPixel: sceneDuration / trackWidth,
     };
     beginTimelineEdit();
     selectClip(clipId);

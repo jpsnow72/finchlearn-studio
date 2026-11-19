@@ -552,17 +552,20 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
     toggleTimelineSnap: () => set((state) => ({ timelineSnapEnabled: !state.timelineSnapEnabled })),
     updateTimelineClip: (id, patch, recordHistory = true) => {
-      const { project, currentSceneId } = get();
+      const { project, currentSceneId, timelineEditOrigin } = get();
       const scene = project.scenes.find((s) => s.id === currentSceneId);
       const object = scene?.objects.find((item) => item.id === id);
       if (!scene || !object) return;
-      const current = timelineClipRange(object, scene.durationMs);
+      const sceneDurationMs =
+        timelineEditOrigin?.scenes.find((item) => item.id === currentSceneId)?.durationMs ??
+        scene.durationMs;
+      const current = timelineClipRange(object, sceneDurationMs);
       const startMs = Math.min(
-        scene.durationMs - MIN_CLIP_DURATION_MS,
+        sceneDurationMs - MIN_CLIP_DURATION_MS,
         Math.max(0, patch.startMs ?? current.startMs),
       );
       const durationMs = Math.min(
-        scene.durationMs - startMs,
+        sceneDurationMs - startMs,
         Math.max(MIN_CLIP_DURATION_MS, patch.durationMs ?? current.durationMs),
       );
       const next = patchScene(project, currentSceneId, (currentScene) => ({
