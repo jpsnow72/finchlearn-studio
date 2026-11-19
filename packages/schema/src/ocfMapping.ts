@@ -124,7 +124,7 @@ export function studioToOCF(project: StudioProject): {
       id: scene.id,
       name: scene.name,
       durationMs: scene.durationMs,
-      transition: scene.transition === "fade" ? "fade" : "cut",
+      transition: scene.transition,
       transitionMs: scene.transitionMs,
       background:
         scene.background && "color" in scene.background ? scene.background.color : undefined,
@@ -206,7 +206,7 @@ export function ocfToStudio(
       id: scene.id,
       name: scene.name,
       durationMs: scene.durationMs,
-      transition: scene.transition === "fade" ? "fade" : "cut",
+      transition: scene.transition ?? "cut",
       transitionMs: scene.transitionMs,
       background: scene.background ? { color: scene.background } : undefined,
       elements: scene.objects
