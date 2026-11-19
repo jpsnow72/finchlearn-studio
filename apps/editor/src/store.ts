@@ -142,6 +142,13 @@ const STORAGE_KEY = "ocf.video-studio.project.v1";
 
 function loadStored(): VideoProject | null {
   try {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("fresh")) {
+      return null;
+    }
+  } catch {
+    // ignore
+  }
+  try {
     // Embedded-from-course bridge: ?embed=<objectId> loads the stashed project.
     const params = new URLSearchParams(window.location.search);
     const embedId = params.get("embed");
@@ -400,7 +407,7 @@ function rippleObjects(
 }
 
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
-  const initial = deriveProjectDurations(loadStored() ?? makeStarterProject("Untitled video"));
+  const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
   const params =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
@@ -450,7 +457,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
 
     newProject: () => {
-      const project = deriveProjectDurations(makeStarterProject("Untitled video"));
+      const project = deriveProjectDurations(makeVideoProject("Untitled video"));
       persist(project);
       set({
         project,

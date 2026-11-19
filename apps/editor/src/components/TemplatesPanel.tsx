@@ -5,6 +5,7 @@
  * the snapshots panel pattern: take a snapshot first if it matters).
  */
 import type { VideoProject, VideoScene } from "@finch-studio/core";
+import { useState } from "react";
 import { useStudioStore, makeStudioCharacter, makeStudioText } from "../store";
 
 function scene(partial: Partial<VideoScene> & { id: string; name: string }): VideoScene {
@@ -70,6 +71,7 @@ const TEMPLATES: { id: string; name: string; blurb: string; build: () => VideoPr
 
 export function TemplatesPanel() {
   const loadProject = useStudioStore((s) => s.loadProject);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   return (
     <div className="panel">
       <div className="panel-title">Templates</div>
@@ -80,16 +82,26 @@ export function TemplatesPanel() {
             <br />
             <span className="muted">{t.blurb}</span>
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm(`Load the "${t.name}" template? It replaces the current project (autosave will hold the template; take a snapshot first to keep your work).`)) {
-                loadProject(t.build());
-              }
-            }}
-          >
-            Use
-          </button>
+          {confirmId === t.id ? (
+            <span>
+              <button
+                type="button"
+                onClick={() => {
+                  loadProject(t.build());
+                  setConfirmId(null);
+                }}
+              >
+                Replace project
+              </button>
+              <button type="button" onClick={() => setConfirmId(null)}>
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setConfirmId(t.id)}>
+              Use
+            </button>
+          )}
         </div>
       ))}
     </div>

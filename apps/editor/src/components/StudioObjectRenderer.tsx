@@ -30,13 +30,20 @@ function CharacterView({ object }: { object: CharacterObject }) {
     ? mouthAt(visemesFromText(line.text), now - line.start)
     : undefined;
   return (
-    <RiggedCharacter
-      def={def}
-      action={studioActionFor(object.characterAnimation)}
-      tMs={now}
-      {...(mouth ? { mouthOverride: mouth } : {})}
-      style={{ width: "100%", height: "100%" }}
-    />
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <RiggedCharacter
+        def={def}
+        action={studioActionFor(object.characterAnimation)}
+        tMs={now}
+        {...(mouth ? { mouthOverride: mouth } : {})}
+        style={{ width: "100%", height: "100%" }}
+      />
+      {line?.text && (
+        <div className="speech-bubble" role="note">
+          {line.text}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@
  *
  * Format:
  *   [Scene: Title]            starts a new scene
+ *   SCENE 1 - Title           also starts a new scene (numbered heading)
  *   NAME: dialogue line       a speaker tag binds the line to that speaker
  *   Any other non-empty line  a narration line (speaker "Narrator")
  *   Blank lines               ignored
@@ -20,7 +21,7 @@ import { makeStudioProject, makeStudioScene, type StudioProject } from "./schema
 const MS_PER_WORD = 800;
 const MIN_SCENE_MS = 2000;
 
-const SCENE_RE = /^\[Scene:\s*(.+?)\s*\]$/i;
+const SCENE_RE = /^(?:\[Scene:\s*(.+?)\s*\]|#{1,3}\s*Scene\s+\d+\s*[-:\u2013]\s*(.+)|Scene\s+\d+\s*[-:\u2013]\s*(.+))$/i;
 const SPEAKER_RE = /^([A-Z][A-Za-z0-9 .'-]{0,40}):\s+(.+)$/;
 
 export function parseScript(script: string, projectName = "Imported script"): StudioProject {
@@ -43,10 +44,11 @@ export function parseScript(script: string, projectName = "Imported script"): St
     if (!line) continue;
     const sceneMatch = line.match(SCENE_RE);
     if (sceneMatch) {
+      const title = sceneMatch[1] ?? sceneMatch[2] ?? sceneMatch[3] ?? "Scene";
       if (!sceneHasContent && project.scenes.length === 1 && scene === project.scenes[0]) {
-        scene.name = sceneMatch[1];
+        scene.name = title;
       } else {
-        scene = makeStudioScene(sceneMatch[1]);
+        scene = makeStudioScene(title);
         project.scenes.push(scene);
       }
       sceneHasContent = true;

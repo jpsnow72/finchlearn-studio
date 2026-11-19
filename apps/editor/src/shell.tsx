@@ -17,6 +17,7 @@
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { currentSession, signIn, signOut, supabaseEnabled } from "./supabase";
+import { useStudioStore, makeStarterProject } from "./store";
 
 export interface StudioSession {
   userId: string;
@@ -212,6 +213,26 @@ export function Root() {
 
   useEffect(() => {
     if (embedded) setInEditor(true);
+  }, [embedded]);
+
+  // First run seeding: a brand new user (nothing stored, not embedded)
+  // starts from the friendly starter scene instead of a blank canvas.
+  useEffect(() => {
+    if (embedded) return;
+    try {
+      if (localStorage.getItem("ocf.video-studio.project.v1")) return;
+      const state = useStudioStore.getState();
+      const p = state.project;
+      if (
+        p.name === "Untitled video" &&
+        p.scenes.length === 1 &&
+        (p.scenes[0]?.objects.length ?? 0) === 0
+      ) {
+        state.loadProject(makeStarterProject("Untitled video"));
+      }
+    } catch {
+      // Storage unavailable: leave the blank project.
+    }
   }, [embedded]);
 
   useEffect(() => {
