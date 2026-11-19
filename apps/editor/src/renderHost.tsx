@@ -41,17 +41,20 @@ export function RenderHost() {
     window.__runStudioRender = async (job) => {
       try {
         const project = useStudioStore.getState().project;
+        // WebM (VP9 + Opus): headless Linux Chrome has no AAC
+        // encoder; the render service transcodes to MP4 with FFmpeg.
         const blob = await exportMp4Project(
           project,
           undefined,
           { width: job.width, height: job.height },
-          { captions: job.captions },
+          { captions: job.captions, container: "webm" },
         );
         const res = await fetch(job.callbackUrl, {
           method: "POST",
           headers: {
             "x-render-token": job.token,
-            "content-type": "video/mp4",
+            "x-render-format": "webm",
+            "content-type": "video/webm",
           },
           body: blob,
         });

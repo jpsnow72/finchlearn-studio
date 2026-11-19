@@ -269,6 +269,13 @@ function drawObject(
 
 export interface CaptionOptions {
   captions?: boolean;
+  /**
+   * Container for the offline render. "webm" (VP9 + Opus) exists for
+   * environments whose WebCodecs has no AAC encoder, notably headless
+   * Linux Chrome in the server renderer (#33): the render service
+   * transcodes the WebM to a delivery MP4 with FFmpeg.
+   */
+  container?: "mp4" | "webm";
 }
 
 const MIX_SAMPLE_RATE = 48000;
@@ -673,8 +680,10 @@ export async function exportMp4Project(
       "MP4 export needs WebCodecs (use Chrome or Edge), or pick the WebM export instead.",
     );
   }
-  const { Output, Mp4OutputFormat, BufferTarget, CanvasSource, AudioBufferSource } =
-    await import("mediabunny");
+  const {
+    Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSource, AudioBufferSource,
+  } = await import("mediabunny");
+  const webm = options.container === "webm";
   const audioBuffer = await buildProjectAudio(project);
   const { width, height } = dimensions;
   const viewport = getRenderViewport(width, height);
@@ -734,17 +743,20 @@ export async function exportMp4Project(
   };
 
   const output = new Output({
-    format: new Mp4OutputFormat(),
+    format: webm ? new WebMOutputFormat() : new Mp4OutputFormat(),
     target: new BufferTarget(),
   });
   const source = new CanvasSource(canvas, {
-    codec: "avc",
+    codec: webm ? "vp9" : "avc",
     bitrate: 8_000_000,
   });
   output.addVideoTrack(source);
   let audioSource: InstanceType<typeof AudioBufferSource> | null = null;
   if (audioBuffer) {
-    audioSource = new AudioBufferSource({ codec: "aac", bitrate: 128_000 });
+    audioSource = new AudioBufferSource({
+      codec: webm ? "opus" : "aac",
+      bitrate: 128_000,
+    });
     output.addAudioTrack(audioSource);
   }
   await output.start();
@@ -809,5 +821,5 @@ export async function exportMp4Project(
   await output.finalize();
   const buffer = (output.target as InstanceType<typeof BufferTarget>).buffer;
   if (!buffer) throw new Error("The MP4 encoder produced no output.");
-  return new Blob([buffer], { type: "video/mp4" });
+  return new Blob([buffer], { type: webm ? "video/webm" : "video/mp4" });
 }

@@ -159,7 +159,7 @@ async function processJob(job) {
     );
     if (!result?.ok) throw new Error(result?.error ?? "the render page reported failure");
     job.state = "processing";
-    const rawPath = `${dir}/raw.mp4`;
+    const rawPath = `${dir}/raw.${job.rawExt ?? "mp4"}`;
     await stat(rawPath); // the callback must have landed the file
     // Loudness-normalize when an audio stream exists; always faststart.
     let hasAudio = false;
@@ -174,7 +174,11 @@ async function processJob(job) {
       hasAudio = false;
     }
     const ffArgs = ["-y", "-i", rawPath];
-    if (hasAudio) ffArgs.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k");
+    if (job.rawExt === "webm") {
+      // Browser WebM (VP9 + Opus) becomes the delivery MP4 here.
+      if (hasAudio) ffArgs.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+      ffArgs.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium", "-c:a", "aac", "-b:a", "160k");
+    } else if (hasAudio) ffArgs.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k");
     else ffArgs.push("-c", "copy");
     ffArgs.push("-movflags", "+faststart", `${dir}/final.mp4`);
     await run("ffmpeg", ffArgs, 5 * 60_000);
@@ -267,9 +271,10 @@ const server = createServer(async (req, res) => {
       }
       const data = await readBody(req, 1024 * 1024 * 1024);
       if (data.length === 0) return sendJson(req, res, 400, { error: "empty render" });
+      job.rawExt = req.headers["x-render-format"] === "webm" ? "webm" : "mp4";
       const dir = `${JOB_DIR}/${job.id}`;
       await mkdir(dir, { recursive: true });
-      await writeFile(`${dir}/raw.mp4`, data);
+      await writeFile(`${dir}/raw.${job.rawExt}`, data);
       return sendJson(req, res, 200, { ok: true, bytes: data.length });
     }
 
