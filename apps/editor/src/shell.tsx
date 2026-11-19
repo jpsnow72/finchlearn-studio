@@ -25,6 +25,12 @@ import {
   type CloudExport,
   type CloudProjectSummary,
 } from "./cloud";
+import {
+  handoffRejectMessage,
+  resolveEmbed,
+  type EmbedResolution,
+  type HandoffRejectReason,
+} from "./embed";
 
 export interface StudioSession {
   userId: string;
@@ -391,21 +397,69 @@ export function FrontPage({
   );
 }
 
+/** Error surface for a handoff that failed verification (issue #49).
+ * Fail closed: no editor, no project, just plain guidance. */
+export function EmbedError({ reason }: { reason: HandoffRejectReason }) {
+  return (
+    <main className="shell">
+      <h1>This course link did not check out</h1>
+      <p className="shell-empty">{handoffRejectMessage(reason)}</p>
+    </main>
+  );
+}
+
 export function Root() {
-  const params = new URLSearchParams(window.location.search);
-  const embedded = params.get("embed") === "finchlearn" || params.has("handoff");
+  const [resolution, setResolution] = useState<EmbedResolution | null>(null);
   const [session, setSession] = useState<StudioSession | null>(() =>
     supabaseEnabled ? null : readSession(),
   );
   const [inEditor, setInEditor] = useState(false);
 
+  // Embed resolution (issue #49): a signed handoff is verified before
+  // anything opens. Legacy ?embed=<objectId> keeps its local bridge.
   useEffect(() => {
-    if (embedded) setInEditor(true);
-  }, [embedded]);
+    let live = true;
+    void resolveEmbed(window.location.search).then(async (resolved) => {
+      if (!live) return;
+      if (resolved.kind === "handoff") {
+        const { context } = resolved;
+        const state = useStudioStore.getState();
+        state.setEmbedContext(context);
+        try {
+          const openedKey = `finch-studio.embed-opened.${context.nonce}`;
+          if (!sessionStorage.getItem(openedKey)) {
+            sessionStorage.setItem(openedKey, "1");
+            if (context.mode === "create") {
+              state.newProject();
+            } else if (context.projectId) {
+              // Edit again: reopen the same project. The cloud copy is
+              // the durable one; a local copy with the same id is the
+              // fallback, and if neither exists the editor still opens
+              // bound to the block so the work is never lost.
+              const cloud = await fetchCloudProject(context.projectId);
+              if (cloud) useStudioStore.getState().loadProject(cloud);
+            }
+          }
+        } catch {
+          // Storage unavailable: the verified context still stands.
+        }
+        if (live) setInEditor(true);
+      } else if (resolved.kind === "legacy") {
+        setInEditor(true);
+      }
+      if (live) setResolution(resolved);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const embedded = resolution?.kind === "handoff" || resolution?.kind === "legacy";
 
   // First run seeding: a brand new user (nothing stored, not embedded)
   // starts from the friendly starter scene instead of a blank canvas.
   useEffect(() => {
+    if (resolution === null || embedded) return;
     try {
       const fresh = new URLSearchParams(window.location.search).has("fresh");
       if (!fresh && localStorage.getItem("ocf.video-studio.project.v1")) return;
@@ -421,10 +475,10 @@ export function Root() {
     } catch {
       // Storage unavailable: leave the blank project.
     }
-  }, [embedded]);
-  // (An embedded open with a stashed course project is never blank, so it
-  // is never seeded; an embedded open with nothing stashed gets the
-  // starter like any other first run.)
+  }, [resolution, embedded]);
+  // (Embedded opens never seed: a legacy open loads its stashed project,
+  // a handoff open starts fresh in create mode or reopens the bound
+  // project in edit mode.)
 
   useEffect(() => {
     if (!supabaseEnabled) return;
@@ -439,6 +493,18 @@ export function Root() {
     };
   }, []);
 
+  if (resolution?.kind === "invalid") {
+    return <EmbedError reason={resolution.reason} />;
+  }
+  if (resolution === null) {
+    // Resolving the surface (session or handoff) with no flash of the
+    // wrong one, per the #67 no-flash rule.
+    return (
+      <main className="shell">
+        <p className="shell-empty">Opening Studio...</p>
+      </main>
+    );
+  }
   if (embedded || inEditor) return <App />;
   if (!session) {
     return (

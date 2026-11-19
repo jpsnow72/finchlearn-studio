@@ -1,0 +1,1 @@
+{"dependencies":{},"description":"FinchLearn Studio ingest worker: 720p proxy, waveform peaks, thumbnail strip via FFmpeg (issue #7).","name":"finch-ingest","private":true,"type":"module","version":"0.1.0"}

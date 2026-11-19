@@ -22,12 +22,15 @@ Scene and object effects are named presets in the shared animation engine. The S
 ## Rendering
 Preview in the browser on proxy media. Two export paths, both held to 1:1 parity with the stage canvas (golden frame tests): client WebCodecs plus Mediabunny as the default for standard timelines, and server FFmpeg workers for heavy footage, unsupported codecs, and headless MCP renders. Server renders are split by scene with segment caching.
 
+## Accessibility (Section 508, issue #63)
+The export dialog runs a pre-flight pass (apps/editor/src/accessibility.ts) over the project before export: text contrast against its effective background (scene background, or the topmost shape under the text), minimum font size, and flash rate from authored opacity animations (WCAG 2.3.1, more than three flashes in any second). Findings are grouped per scene with a jump to scene action; the pass reports and never blocks an export by itself. Audio clips carry an engine role in their x-finch-studio metadata (role, plus descriptionText for the Audio Description script). The description role in @finch-studio/audio auto-ducks primary audio in a mixed export, or exports as a secondary WAV audio track plus a timed VTT track alongside captions (planAudioExport in packages/audio is the shared planning layer for both render paths).
+
 ## Media
-All media lives in Cloudflare R2 behind the key checked media worker: Finch Stock, Unsplash (via the worker proxy, attribution stamped), and the user media library. Ingest generates a 720p proxy, waveform peaks, and a thumbnail strip. Audio peak arrays and edit metadata use the `x-finch-studio` object extension; peak values are normalized numbers, not media bytes.
+All media lives in Cloudflare R2 behind the key checked media worker: Finch Stock, Unsplash (via the worker proxy, attribution stamped), and the user media library. Ingest generates a 720p proxy, waveform peaks, and a thumbnail strip. Audio peak arrays and edit metadata use the `x-finch-studio` object extension; peak values are normalized numbers, not media bytes. Browser screen and webcam recordings (packages/media recording core, Record tab in the media panel) enter through the same ingest path as user source video assets and land in a scene as normal footage objects.
 
 ## Surfaces and integration
 - studio.finchlearn.com: signed out visitors get the landing page, signed in users get the studio hub at the root with no redirect flash; auth is shared across .finchlearn.com (Supabase).
-- Embedded mode: a signed handoff from FinchLearn opens the editor directly in a popup; Save & Return binds the saved library asset into the course video block.
+- Embedded mode: a signed handoff from FinchLearn opens the editor directly in a popup; Save & Return binds the saved library asset into the course video block. The handoff/return contract is pinned in docs/embed-contract.md and implemented in apps/editor/src/embed.ts (verification fails closed; Finish posts the return payload to the handoff's return origin and persists it under the local return key; a render still running returns a rendering payload first and a ready payload when the render lands).
 - MCP: the FinchLearn MCP server gains video tools over this same project JSON, Keeper and up.
 
 ## Design gates (standing)
