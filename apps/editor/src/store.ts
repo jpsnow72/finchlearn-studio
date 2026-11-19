@@ -75,6 +75,26 @@ export function makeStudioCharacter(characterId: CharacterId): CharacterObject {
   };
 }
 
+export function makeStudioImage(resource: string, name = "Image"): CourseObject {
+  return {
+    id: newObjId("im"),
+    type: "image",
+    name,
+    position: { x: 320, y: 120, w: 320, h: 200 },
+    resource,
+  } as CourseObject;
+}
+
+export function makeStudioAudio(resource: string, name = "Audio"): CourseObject {
+  return {
+    id: newObjId("au"),
+    type: "audio",
+    name,
+    position: { x: 40, y: 40, w: 220, h: 48 },
+    resource,
+  } as CourseObject;
+}
+
 export function makeStudioText(): CourseObject {
   return {
     id: newObjId("tx"),
@@ -156,6 +176,7 @@ interface VideoStudioState {
 
   // project
   newProject: () => void;
+  loadProject: (p: VideoProject) => void;
   undo: () => void;
   redo: () => void;
   setProjectName: (name: string) => void;
@@ -392,6 +413,19 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     timelineSnapEnabled: true,
     tts: { voiceId: undefined, rate: 1, pitch: 1 },
     embedObjectId,
+
+    loadProject: (p) => {
+      const project = deriveProjectDurations(p);
+      set({
+        project,
+        pastProjects: [],
+        futureProjects: [],
+        timelineEditOrigin: null,
+        currentSceneId: project.scenes[0]?.id ?? "",
+        selectedObjectId: null,
+        selectedTimelineClipId: null,
+      });
+    },
 
     newProject: () => {
       const project = deriveProjectDurations(makeVideoProject("Untitled video"));

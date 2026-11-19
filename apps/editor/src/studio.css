@@ -329,3 +329,20 @@ input[type="range"] { accent-color: var(--accent); }
 .shell-card { min-width: 200px; max-width: 200px; border: 1px solid #e4e4e7; border-radius: 10px; padding: 16px; background: #fff; }
 .shell-card button { margin-top: 10px; padding: 6px 12px; border-radius: 6px; border: 1px solid #111; background: #111; color: #fff; cursor: pointer; }
 .shell-empty { color: #71717a; font-size: 14px; }
+
+/* Wiring batch panels (media, audio, library) */
+.media-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.media-tabs button.active { font-weight: 600; text-decoration: underline; }
+.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.media-thumb { display: flex; flex-direction: column; gap: 2px; padding: 4px; text-align: left; }
+.media-thumb img { width: 100%; height: 56px; object-fit: cover; border-radius: 4px; }
+.media-thumb span { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audio-clip { border-top: 1px solid var(--border, #ddd); padding: 6px 0; }
+.audio-clip label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 4px 0; }
+.audio-clip input[type="number"] { width: 80px; }
+.audio-kf-row { display: flex; gap: 6px; align-items: center; }
+.audio-add { display: flex; gap: 6px; margin-top: 8px; }
+.audio-add input { flex: 1; min-width: 0; }
+.lib-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.lib-row input { flex: 1; min-width: 100px; }
+.lib-snap { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border, #ddd); font-size: 12px; }

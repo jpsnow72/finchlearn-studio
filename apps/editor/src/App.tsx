@@ -20,6 +20,10 @@ import { StudioCanvas } from "./components/StudioCanvas";
 import { CharacterPicker } from "./components/CharacterPicker";
 import { PropsPanel } from "./components/PropsPanel";
 import { DialoguePanel } from "./components/DialoguePanel";
+import { MediaPanel } from "./components/MediaPanel";
+import { AudioPanel } from "./components/AudioPanel";
+import { LibraryPanel } from "./components/LibraryPanel";
+import { ScriptImport } from "./components/ScriptImport";
 import { Timeline } from "./components/Timeline";
 import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText } from "./store";
 
@@ -37,6 +41,33 @@ export function App() {
   const [pathEdit, setPathEdit] = useState(false);
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
   const dialogueRef = useRef(new DialoguePlayer({ provider: browserTts }));
+
+  // Autosave: restore the last session once, then keep it saved (#6).
+  const loadProject = useStudioStore((s) => s.loadProject);
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const raw = localStorage.getItem("finch-studio.autosave");
+      if (raw) {
+        const parsed = JSON.parse(raw) as typeof project;
+        if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length > 0) {
+          loadProject(parsed);
+        }
+      }
+    } catch {
+      // A corrupt autosave never blocks the editor.
+    }
+  }, [loadProject]);
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try {
+      localStorage.setItem("finch-studio.autosave", JSON.stringify(project));
+    } catch {
+      // Storage full or unavailable: editing continues unsaved.
+    }
+  }, [project]);
 
   // Reset clock + dialogue when switching scenes.
   useEffect(() => {
@@ -139,6 +170,8 @@ export function App() {
             <div className="panel-title">Add to scene</div>
             <ObjectAdder />
           </div>
+          <MediaPanel />
+          <ScriptImport />
         </aside>
         <main className="studio-center">
           <StudioCanvas tMs={clock.tMs} pathEdit={pathEdit} />
@@ -156,6 +189,8 @@ export function App() {
         <aside className="studio-right">
           <PropsPanel pathEdit={pathEdit} setPathEdit={setPathEdit} />
           <DialoguePanel />
+          <AudioPanel tMs={clock.tMs} />
+          <LibraryPanel />
         </aside>
       </div>
     </div>
