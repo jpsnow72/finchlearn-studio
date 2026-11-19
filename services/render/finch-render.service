@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/finch-render
-Environment=PORT=8791
+Environment=PORT=8797
 Environment=STUDIO_URL=https://studio.finchlearn.com
 Environment=PUBLIC_URL=https://render.finchlearn.com
 Environment=CHROME_PATH=/usr/bin/google-chrome-stable

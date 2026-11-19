@@ -19,11 +19,17 @@ a premium-voiced project fails the job with that error, never a
 silent voice swap.
 
 ## Deploy (VPS, Ubuntu 24.04)
-1. Install: `ffmpeg`, `caddy`, Google Chrome stable .deb, Node 22 at /opt/node22.
+1. Install: `ffmpeg`, Google Chrome stable .deb, Node 22 at /opt/node22.
+   (Nov 19 note: the box's Ubuntu archive mirrors were unreachable;
+   sources were switched to ftp.halifax.rwth-aachen.de, backup at
+   /root/ubuntu.sources.bak.)
 2. Copy this directory to `/opt/finch-render`, `npm install --omit=dev`.
 3. `/opt/finch-render/render.env` with `RENDER_KEY=<random>` (600 perms).
    The same value goes into the editor build as `VITE_RENDER_KEY`
    alongside `VITE_RENDER_URL=https://render.finchlearn.com`.
 4. `finch-render.service` → `/etc/systemd/system/`, enable + start.
-5. `Caddyfile` → `/etc/caddy/Caddyfile`, reload caddy. DNS:
-   `render.finchlearn.com` A → the VPS, DNS-only (Caddy terminates TLS).
+5. TLS/reverse proxy: the VPS already runs nginx on 80/443, so use
+   `nginx-render.conf` → `/etc/nginx/sites-available/render` and
+   `certbot --nginx -d render.finchlearn.com`. DNS:
+   `render.finchlearn.com` A → the VPS, DNS-only. The service itself
+   listens on 127.0.0.1:8797 (8791 was already taken on that box).
