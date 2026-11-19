@@ -116,3 +116,18 @@ export function buildCharacter(id: string, name: string, choices: CustomizationC
     choices,
   );
 }
+
+/** Legacy editor colour choices mapped onto a def (skin/hair/shirt/pants). */
+export function defWithColors(
+  def: CharacterDef,
+  colors?: { skin?: string; hair?: string; shirt?: string; pants?: string },
+): CharacterDef {
+  if (!colors) return def;
+  return {
+    ...def,
+    ...(colors.skin ? { skin: colors.skin } : {}),
+    ...(colors.hair ? { hairColor: colors.hair } : {}),
+    ...(colors.shirt ? { topColor: colors.shirt } : {}),
+    ...(colors.pants ? { bottomColor: colors.pants } : {}),
+  };
+}

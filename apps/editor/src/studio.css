@@ -346,3 +346,14 @@ input[type="range"] { accent-color: var(--accent); }
 .lib-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .lib-row input { flex: 1; min-width: 100px; }
 .lib-snap { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border, #ddd); font-size: 12px; }
+
+/* Review fixes: ruler end label, right column clipping, landing hero */
+.timeline-ruler span:last-child { transform: translateX(-100%); }
+.studio-right { overflow-x: hidden; }
+.studio-right input[type="number"], .studio-right input[type="text"] { min-width: 0; }
+.shell-hero { text-align: center; padding-top: 72px; }
+.shell-hero p { margin-left: auto; margin-right: auto; }
+.shell-hero .shell-signin { justify-content: center; }
+.shell-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; max-width: 860px; margin: 36px auto 0; text-align: left; }
+.shell-feature { border: 1px solid var(--line, #333); border-radius: 10px; padding: 14px; }
+.shell-feature strong { display: block; margin-bottom: 4px; }

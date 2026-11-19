@@ -10,14 +10,14 @@ import type { MediaAsset } from "@finch-studio/media";
 import { useStudioStore, makeStudioImage } from "../store";
 
 const SAMPLE_STOCK: MediaAsset[] = [
-  { id: "stk-office", source: "finch-stock", kind: "image", name: "Modern office", remoteUrl: "https://picsum.photos/seed/office/640/400", credit: "Finch Stock", tags: ["office"] },
-  { id: "stk-team", source: "finch-stock", kind: "image", name: "Team meeting", remoteUrl: "https://picsum.photos/seed/team/640/400", credit: "Finch Stock", tags: ["people"] },
-  { id: "stk-desk", source: "finch-stock", kind: "image", name: "Desk with laptop", remoteUrl: "https://picsum.photos/seed/desk/640/400", credit: "Finch Stock", tags: ["work"] },
+  { id: "stk-office", source: "finch-stock", kind: "image", name: "Modern office", remoteUrl: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=640&q=60", credit: "Finch Stock", tags: ["office"] },
+  { id: "stk-team", source: "finch-stock", kind: "image", name: "Team meeting", remoteUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=640&q=60", credit: "Finch Stock", tags: ["people"] },
+  { id: "stk-desk", source: "finch-stock", kind: "image", name: "Desk with laptop", remoteUrl: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=640&q=60", credit: "Finch Stock", tags: ["work"] },
 ];
 
 const SAMPLE_UNSPLASH: MediaAsset[] = [
-  { id: "uns-mountain", source: "unsplash", kind: "image", name: "Mountain lake", remoteUrl: "https://picsum.photos/seed/mountain/640/400", credit: "Photo via Unsplash (sample)", tags: ["nature"] },
-  { id: "uns-city", source: "unsplash", kind: "image", name: "City street", remoteUrl: "https://picsum.photos/seed/city/640/400", credit: "Photo via Unsplash (sample)", tags: ["city"] },
+  { id: "uns-mountain", source: "unsplash", kind: "image", name: "Mountain lake", remoteUrl: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=640&q=60", credit: "Photo via Unsplash (sample)", tags: ["nature"] },
+  { id: "uns-city", source: "unsplash", kind: "image", name: "City street", remoteUrl: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=640&q=60", credit: "Photo via Unsplash (sample)", tags: ["city"] },
 ];
 
 interface UserItem {

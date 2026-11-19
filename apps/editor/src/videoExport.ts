@@ -35,6 +35,7 @@ import {
   ACTION_NAMES,
   RiggedCharacter,
   characterForLegacyId,
+  defWithColors,
   mouthAt,
   visemesFromText,
   type ActionName,
@@ -68,7 +69,7 @@ const CYCLE_MS = 2600;
 async function buildCharacterFrames(
   char: CharacterObject,
 ): Promise<CharFrames | null> {
-  const def = characterForLegacyId(char.characterId);
+  const def = defWithColors(characterForLegacyId(char.characterId), char.colors);
   const action = studioActionFor(char.characterAnimation);
   const frames: HTMLImageElement[] = [];
   for (let t = 0; t <= CYCLE_MS; t += FRAME_MS) {

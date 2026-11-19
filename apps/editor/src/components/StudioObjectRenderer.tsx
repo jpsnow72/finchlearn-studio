@@ -13,6 +13,7 @@ import { SceneTimeContext } from "@finch-studio/animation";
 import {
   RiggedCharacter,
   characterForLegacyId,
+  defWithColors,
   mouthAt,
   visemesFromText,
 } from "@finch-studio/characters";
@@ -20,7 +21,7 @@ import { studioActionFor } from "../videoExport";
 
 function CharacterView({ object }: { object: CharacterObject }) {
   const tMs = useContext(SceneTimeContext);
-  const def = characterForLegacyId(object.characterId);
+  const def = defWithColors(characterForLegacyId(object.characterId), object.colors);
   const now = tMs ?? 0;
   const line = (object.speech ?? []).find(
     (sp) => now >= sp.start && now < sp.start + sp.duration,

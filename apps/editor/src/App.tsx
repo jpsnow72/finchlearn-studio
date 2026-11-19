@@ -24,6 +24,7 @@ import { MediaPanel } from "./components/MediaPanel";
 import { AudioPanel } from "./components/AudioPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
+import { TemplatesPanel } from "./components/TemplatesPanel";
 import { Timeline } from "./components/Timeline";
 import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText } from "./store";
 
@@ -171,6 +172,7 @@ export function App() {
             <ObjectAdder />
           </div>
           <MediaPanel />
+          <TemplatesPanel />
           <ScriptImport />
         </aside>
         <main className="studio-center">

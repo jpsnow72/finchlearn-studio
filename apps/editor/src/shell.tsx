@@ -130,6 +130,12 @@ export function LandingPage({
           </button>
         </div>
       )}
+      <div className="shell-features">
+        <div className="shell-feature"><strong>Characters that act</strong>Animated characters with actions, expressions, and lip sync, no drawing required.</div>
+        <div className="shell-feature"><strong>Real editing basics</strong>Scenes, a capped timeline, trims, transitions, audio fades and keyframes.</div>
+        <div className="shell-feature"><strong>Exports that last</strong>MP4 and captions that keep working forever, with no account needed to play them.</div>
+        <div className="shell-feature"><strong>Drops into courses</strong>Built for FinchLearn: send a finished video straight into a course block.</div>
+      </div>
     </main>
   );
 }

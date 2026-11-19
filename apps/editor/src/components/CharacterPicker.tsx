@@ -1,11 +1,10 @@
 /**
- * CharacterPicker — thumbnail grid to drop characters onto the stage.
- *
- * Thumbnails use the CharacterFigure seam. Real character art is a
- * design-first workstream (issue #16) and plugs into that seam.
+ * CharacterPicker: thumbnail grid to drop characters onto the stage.
+ * Thumbnails render the real rigged characters (issue #16 approved
+ * design, packages/characters) at their idle pose.
  */
 import { CHARACTER_IDS, type CharacterId } from "@finch-studio/core";
-import { CharacterFigure, SceneTimeContext } from "@finch-studio/animation";
+import { RiggedCharacter, characterForLegacyId } from "@finch-studio/characters";
 import { useStudioStore, makeStudioCharacter } from "../store";
 
 export function CharacterPicker() {
@@ -23,11 +22,14 @@ export function CharacterPicker() {
             onClick={() => addObject(makeStudioCharacter(c.id as CharacterId))}
             title={`Add ${c.label}`}
           >
-            <SceneTimeContext.Provider value={null}>
-              <div className="char-thumb">
-                <CharacterFigure label={c.label} />
-              </div>
-            </SceneTimeContext.Provider>
+            <div className="char-thumb">
+              <RiggedCharacter
+                def={characterForLegacyId(c.id)}
+                action="idle"
+                tMs={0}
+                style={{ width: "100%", height: "100%" }}
+              />
+            </div>
             <span className="char-card-label">{c.label}</span>
           </button>
         ))}
@@ -35,4 +37,3 @@ export function CharacterPicker() {
     </div>
   );
 }
-

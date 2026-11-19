@@ -52,11 +52,11 @@ export const ACTIONS: Record<ActionName, ActionDef> = {
   idle: {
     name: "idle", durationMs: 2600, loop: true,
     keys: {
-      torso: [K(0, -1), K(1300, 1), K(2600, -1)],
-      head: [K(0, -1.5), K(1300, 1.5), K(2600, -1.5)],
-      armUpperL: [K(0, 2), K(1300, -2), K(2600, 2)],
-      armUpperR: [K(0, -2), K(1300, 2), K(2600, -2)],
-      root: [K(0, 0, 0, 0), K(1300, 0, 0, 1.5), K(2600, 0, 0, 0)],
+      torso: [K(0, -2.2), K(1300, 2.2), K(2600, -2.2)],
+      head: [K(0, -3), K(1300, 3), K(2600, -3)],
+      armUpperL: [K(0, 4), K(1300, -4), K(2600, 4)],
+      armUpperR: [K(0, -4), K(1300, 4), K(2600, -4)],
+      root: [K(0, 0, 0, 0), K(1300, 0, 0, 3.5), K(2600, 0, 0, 0)],
     },
   },
   talk: {
