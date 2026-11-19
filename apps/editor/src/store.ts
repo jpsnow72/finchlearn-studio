@@ -51,6 +51,7 @@ import {
   type CaptionStyle,
 } from "./captions";
 import type { SilenceOptions } from "@finch-studio/audio";
+import {
   FOOTAGE_STAGE_H,
   FOOTAGE_STAGE_W,
   resolveFootageObject,
@@ -1183,6 +1184,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           objects: s.objects.filter((o) => !isVoiceoverClip(o)),
         })),
       );
+    },
     updateFootageMetadata: (id, patch) => {
       const { project, currentSceneId } = get();
       commit(

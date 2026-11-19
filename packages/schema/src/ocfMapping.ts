@@ -276,7 +276,6 @@ function markersFromCuePoints(objects: CourseObject[]): CueMarker[] | undefined 
   return undefined;
 }
 
-function elementToOCF(el: SceneElement): CourseObject | null {
 /**
  * Whiteboard draw-on (issue #52) rides the object's x-finch-studio
  * extension, the same channel as character metadata, so it survives
@@ -369,6 +368,7 @@ function elementToOCF(el: SceneElement, markers: CueMarker[] | undefined): Cours
           },
         },
       } satisfies VideoObject;
+    }
     case "character":
       return {
         ...base,

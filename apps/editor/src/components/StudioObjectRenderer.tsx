@@ -34,6 +34,8 @@ import {
 /** Stable, attribute-safe SVG filter id for an object's correction. */
 export function colorFilterIdFor(objectId: string): string {
   return `cc-${objectId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 import {
   handStrokeWidth,
   shapeOutlineStrokes,
@@ -242,18 +244,6 @@ export function StudioObjectRenderer({
             borderRadius: isEllipse ? "50%" : 8,
           }}
         />
-      );
-    }
-    case "video": {
-      const src = (object as { resource?: string }).resource;
-      return src ? (
-        <video
-          src={src}
-          controls
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-        />
-      ) : (
-        <div className="studio-placeholder">video</div>
       );
     }
     case "image": {

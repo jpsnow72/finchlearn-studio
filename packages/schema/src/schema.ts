@@ -525,6 +525,8 @@ export function validateStudioProject(p: StudioProject): string[] {
         }
         if (el.drawOn.eraseDelayMs !== undefined && el.drawOn.eraseDelayMs < 0) {
           problems.push(`Element "${el.id}" drawOn eraseDelayMs cannot be negative.`);
+        }
+      }
       if (el.colorCorrection) {
         for (const key of COLOR_CORRECTION_KEYS) {
           const value = el.colorCorrection[key];
