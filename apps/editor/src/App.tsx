@@ -134,9 +134,38 @@ export function App() {
 
   const totalExportMs = projectTimeline(project).totalMs;
 
+  const [coach, setCoach] = useState(() => {
+    try {
+      return !localStorage.getItem("finch-studio.coach-dismissed");
+    } catch {
+      return false;
+    }
+  });
+
   return (
     <div className="studio">
       <TopBar />
+      {coach && (
+        <div className="coachbar">
+          <strong>Quick start:</strong>
+          <span>1. Click Maya on the stage and edit her line in Dialogue</span>
+          <span>2. Change her action in Properties</span>
+          <span>3. Press Export and pick MP4 fast export</span>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                localStorage.setItem("finch-studio.coach-dismissed", "1");
+              } catch {
+                // ignore
+              }
+              setCoach(false);
+            }}
+          >
+            Got it
+          </button>
+        </div>
+      )}
       <SceneManager />
       <div className="studio-main">
         <nav className="studio-rail" aria-label="Editor panels">

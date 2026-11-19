@@ -76,10 +76,29 @@ export function characterById(id: string): CharacterDef {
 }
 
 /** Deterministically pick a studio character for any legacy character id. */
+const LEGACY_MAP: Record<string, string> = {
+  businesswoman: "maya",
+  businessman: "leo",
+  casualWoman: "rosa",
+  casualMan: "leo",
+  student: "maya",
+  professor: "walter",
+};
+
+/** Canonical legacy id for each studio character (what the picker stores). */
+export const CANONICAL_LEGACY_ID: Record<string, string> = {
+  maya: "businesswoman",
+  leo: "businessman",
+  rosa: "casualWoman",
+  walter: "professor",
+};
+
 export function characterForLegacyId(legacyId: string): CharacterDef {
-  let h = 0;
-  for (let i = 0; i < legacyId.length; i++) h = (h * 31 + legacyId.charCodeAt(i)) | 0;
-  return STUDIO_CHARACTERS[Math.abs(h) % STUDIO_CHARACTERS.length];
+  const target = LEGACY_MAP[legacyId];
+  return (
+    STUDIO_CHARACTERS.find((c) => c.id === target) ??
+    STUDIO_CHARACTERS[Math.abs([...legacyId].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 0)) % STUDIO_CHARACTERS.length]
+  );
 }
 
 export interface CustomizationChoices {

@@ -264,11 +264,68 @@ function drawObject(
   }
 }
 
+export interface CaptionOptions {
+  captions?: boolean;
+}
+
+/** Burned in captions: the active dialogue line, bottom centre. */
+function drawCaptionOverlay(
+  ctx: CanvasRenderingContext2D,
+  scene: { objects: CourseObject[] },
+  localT: number,
+  width: number,
+  height: number,
+): void {
+  let text = "";
+  for (const o of scene.objects) {
+    if (o.type !== "character") continue;
+    const line = ((o as CharacterObject).speech ?? []).find(
+      (sp) => localT >= sp.start && localT < sp.start + sp.duration,
+    );
+    if (line?.text) {
+      text = line.text;
+      break;
+    }
+  }
+  if (!text) return;
+  const fontPx = Math.max(18, Math.round(height * 0.032));
+  ctx.save();
+  ctx.font = `${fontPx}px system-ui, sans-serif`;
+  const maxW = width * 0.84;
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = w;
+    } else line = test;
+  }
+  if (line) lines.push(line);
+  const shown = lines.slice(0, 2);
+  const lineH = fontPx * 1.3;
+  const boxH = shown.length * lineH + 16;
+  const boxW = Math.min(maxW, Math.max(...shown.map((l) => ctx.measureText(l).width))) + 28;
+  const bx = (width - boxW) / 2;
+  const by = height - boxH - Math.round(height * 0.045);
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.beginPath();
+  ctx.roundRect(bx, by, boxW, boxH, 8);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  shown.forEach((l, i) => ctx.fillText(l, width / 2, by + 8 + i * lineH));
+  ctx.restore();
+}
+
 /** Render the whole project to a browser-supported MP4 or WebM blob. */
 export async function exportVideoProject(
   project: VideoProject,
   onProgress?: (fraction: number) => void,
   dimensions: { width: number; height: number } = { width: 1280, height: 720 },
+  options: CaptionOptions = {},
 ): Promise<Blob> {
   if (
     typeof MediaRecorder === "undefined" ||
@@ -444,6 +501,7 @@ export async function exportVideoProject(
       } else {
         renderSceneFrame(ctx, seg.scene, localT);
       }
+      if (options.captions) drawCaptionOverlay(ctx, seg.scene, localT, width, height);
 
       onProgress?.((f + 1) / totalFrames);
       await new Promise((r) => setTimeout(r, frameMs));
@@ -469,6 +527,7 @@ export async function exportMp4Project(
   project: VideoProject,
   onProgress?: (fraction: number) => void,
   dimensions: { width: number; height: number } = { width: 1280, height: 720 },
+  options: CaptionOptions = {},
 ): Promise<Blob> {
   if (typeof VideoEncoder === "undefined") {
     throw new Error(
@@ -593,6 +652,7 @@ export async function exportMp4Project(
     } else {
       renderSceneFrame(ctx, seg.scene, localT);
     }
+    if (options.captions) drawCaptionOverlay(ctx, seg.scene, localT, width, height);
     await source.add(f / FPS, 1 / FPS);
     onProgress?.((f + 1) / totalFrames);
   }

@@ -69,6 +69,53 @@ const TEMPLATES: { id: string; name: string; blurb: string; build: () => VideoPr
   },
 ];
 
+const MORE_TEMPLATES: typeof TEMPLATES = [
+  {
+    id: "onboarding",
+    name: "New hire onboarding",
+    blurb: "Warm welcome plus what to do in week one.",
+    build: () => {
+      const host = talking("maya", "wave");
+      host.speech = [{ id: "o1", text: "Welcome to the team. Here is what your first week looks like.", start: 400, duration: 3600 }];
+      const guide = talking("leo", "explain");
+      guide.speech = [{ id: "o2", text: "Day one is setup and introductions. By Friday you will ship something small.", start: 400, duration: 4200 }];
+      return { id: "tpl-onboarding", name: "New hire onboarding", scenes: [scene({ id: "ob-s1", name: "Welcome", objects: [host] }), scene({ id: "ob-s2", name: "Week one", durationMs: 7000, objects: [guide] })] };
+    },
+  },
+  {
+    id: "compliance",
+    name: "Compliance reminder",
+    blurb: "Short, direct, with the deadline up front.",
+    build: () => {
+      const host = talking("leo", "point");
+      host.speech = [{ id: "c1", text: "Annual privacy training is due by the end of the month. It takes about fifteen minutes.", start: 400, duration: 4600 }];
+      return { id: "tpl-compliance", name: "Compliance reminder", scenes: [scene({ id: "cp-s1", name: "Reminder", durationMs: 7000, objects: [host] })] };
+    },
+  },
+  {
+    id: "walkthrough",
+    name: "Software walkthrough",
+    blurb: "Presenter explains a screen, step by step.",
+    build: () => {
+      const host = talking("maya", "explain");
+      host.speech = [{ id: "w1", text: "Open Settings, choose Notifications, and turn on the alerts you care about.", start: 400, duration: 4400 }];
+      return { id: "tpl-walkthrough", name: "Software walkthrough", scenes: [scene({ id: "wt-s1", name: "Walkthrough", durationMs: 7000, objects: [host] })] };
+    },
+  },
+  {
+    id: "recap",
+    name: "Lesson recap / knowledge check",
+    blurb: "Recap the key point, then pose the check question.",
+    build: () => {
+      const host = talking("leo", "think");
+      host.speech = [{ id: "r1", text: "Quick check. Which step comes first in the lockout procedure?", start: 400, duration: 3800 }];
+      return { id: "tpl-recap", name: "Lesson recap", scenes: [scene({ id: "rc-s1", name: "Knowledge check", durationMs: 6500, objects: [host] })] };
+    },
+  },
+];
+
+TEMPLATES.push(...MORE_TEMPLATES);
+
 export function TemplatesPanel() {
   const loadProject = useStudioStore((s) => s.loadProject);
   const [confirmId, setConfirmId] = useState<string | null>(null);

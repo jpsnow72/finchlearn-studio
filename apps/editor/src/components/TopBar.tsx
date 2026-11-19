@@ -23,6 +23,7 @@ export function TopBar() {
   const [status, setStatus] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [presetId, setPresetId] = useState<ExportPresetId>("lms");
+  const [burnCaptions, setBurnCaptions] = useState(true);
   const [progress, setProgress] = useState(0);
 
   const doExport = async () => {
@@ -56,15 +57,18 @@ export function TopBar() {
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
+          { captions: burnCaptions },
         );
         downloadBlob(blob, `${baseName}.mp4`);
         recordExport(baseName);
         setStatus("MP4 downloaded. Saving to the User Media Library is not connected in this build.");
       } else {
+        setStatus("Rendering in real time. Keep this tab in front until it finishes.");
         const blob = await exportVideoProject(
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
+          { captions: burnCaptions },
         );
         const extension = blob.type.includes("mp4") ? "mp4" : "webm";
         downloadBlob(blob, `${baseName}.${extension}`);
@@ -171,6 +175,14 @@ export function TopBar() {
                   <option key={preset.id} value={preset.id}>{preset.label}</option>
                 ))}
               </select>
+              <label className="export-captions">
+                <input
+                  type="checkbox"
+                  checked={burnCaptions}
+                  onChange={(e) => setBurnCaptions(e.target.checked)}
+                />
+                Burn in captions
+              </label>
             </label>
             <p className="muted small">
               Video downloads use MP4 when supported by your browser, otherwise WebM.

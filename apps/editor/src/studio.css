@@ -366,3 +366,5 @@ input[type="range"] { accent-color: var(--accent); }
 .studio-rail button { height: 44px; font-size: 19px; border-radius: 10px; border: 1px solid var(--line, #333); background: transparent; cursor: pointer; }
 .studio-rail button.active { outline: 2px solid var(--accent, #6c4ab0); }
 .studio-flyout { width: 264px; flex: none; }
+.char-family { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 8px 0 4px; }
+.coachbar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--bg2); border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
