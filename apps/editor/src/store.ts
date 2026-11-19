@@ -32,6 +32,7 @@ import {
   withAudioClipMetadata,
   type AudioClipMetadata,
 } from "./audioEditing";
+import { characterForLegacyId } from "@finch-studio/characters";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -67,7 +68,7 @@ export function makeStudioCharacter(characterId: CharacterId): CharacterObject {
   return {
     id: newObjId("ch"),
     type: "character",
-    name: characterId,
+    name: characterForLegacyId(characterId).name,
     position: { x: 200 + objCounter * 40, y: 200, w: 140, h: 280 },
     characterId,
     characterAnimation: "idle",
