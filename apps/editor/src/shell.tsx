@@ -8,14 +8,15 @@
  * - signed out renders the Landing Page;
  * - signed in renders the Front Page hub (Netflix style swimlanes).
  *
- * Session seam: in production the session is the shared Supabase session on
- * .finchlearn.com, so a FinchLearn user arrives already signed in. Until the
- * Supabase project env is wired for this app, the seam below uses a local
- * session flag with the same shape (null = signed out, object = signed in),
- * so the routing logic being exercised is the production logic.
+ * Session: the shared Supabase project (same accounts as FinchLearn).
+ * The client session persists in this subdomain's storage; full
+ * cross-subdomain cookie SSO lands when FinchLearn auth moves to shared
+ * .finchlearn.com cookies. Builds without the Supabase env fall back to
+ * the local session flag with the same shape.
  */
 import { useEffect, useState } from "react";
 import { App } from "./App";
+import { currentSession, signIn, signOut, supabaseEnabled } from "./supabase";
 
 export interface StudioSession {
   userId: string;
@@ -60,7 +61,31 @@ function readList<T>(key: string): T[] {
   }
 }
 
-export function LandingPage({ onContinue }: { onContinue: () => void }) {
+export function LandingPage({
+  onContinue,
+  onSignedIn,
+}: {
+  onContinue: () => void;
+  onSignedIn: (s: StudioSession) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const session = await signIn(email.trim(), password);
+      onSignedIn({ userId: session.user.id, email: session.user.email ?? email.trim() });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sign in failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <main className="shell shell-hero">
       <h1>Make training videos people actually finish.</h1>
@@ -69,14 +94,42 @@ export function LandingPage({ onContinue }: { onContinue: () => void }) {
         matter: real footage, clean audio, captions, and exports that keep
         working forever, with no account required to play them.
       </p>
-      <div className="shell-ctas">
-        <button type="button" className="shell-cta" onClick={onContinue}>
-          Start Creating Free
-        </button>
-        <button type="button" className="shell-cta secondary" onClick={onContinue}>
-          Sign In / Continue with FinchLearn
-        </button>
-      </div>
+      {supabaseEnabled ? (
+        <form
+          className="shell-signin"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <input
+            type="email"
+            required
+            placeholder="Email (your FinchLearn account)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            aria-label="Email"
+          />
+          <input
+            type="password"
+            required
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-label="Password"
+          />
+          <button type="submit" className="shell-cta" disabled={busy}>
+            {busy ? "Signing in..." : "Sign In"}
+          </button>
+          {error && <p className="shell-error">{error}</p>}
+        </form>
+      ) : (
+        <div className="shell-ctas">
+          <button type="button" className="shell-cta" onClick={onContinue}>
+            Start Creating Free
+          </button>
+        </div>
+      )}
     </main>
   );
 }
@@ -84,16 +137,21 @@ export function LandingPage({ onContinue }: { onContinue: () => void }) {
 export function FrontPage({
   session,
   onOpenEditor,
+  onSignOut,
 }: {
   session: StudioSession;
   onOpenEditor: () => void;
+  onSignOut: () => void;
 }) {
   const projects = readList<SavedProject>(PROJECTS_KEY);
   const exportsList = readList<SavedExport>(EXPORTS_KEY);
   return (
     <main className="shell">
       <h1>Welcome back</h1>
-      <p className="shell-empty">Signed in as {session.email}. Pick up where you left off.</p>
+      <p className="shell-empty">
+        Signed in as {session.email}. Pick up where you left off.{" "}
+        <button type="button" onClick={onSignOut}>Sign out</button>
+      </p>
       <section className="shell-lane">
         <h2>Continue Editing</h2>
         {projects.length === 0 ? (
@@ -141,14 +199,50 @@ export function FrontPage({
 export function Root() {
   const params = new URLSearchParams(window.location.search);
   const embedded = params.get("embed") === "finchlearn" || params.has("handoff");
-  const [session, setSession] = useState<StudioSession | null>(() => readSession());
+  const [session, setSession] = useState<StudioSession | null>(() =>
+    supabaseEnabled ? null : readSession(),
+  );
   const [inEditor, setInEditor] = useState(false);
 
   useEffect(() => {
     if (embedded) setInEditor(true);
   }, [embedded]);
 
+  useEffect(() => {
+    if (!supabaseEnabled) return;
+    let live = true;
+    void currentSession().then((s) => {
+      if (live && s) {
+        setSession({ userId: s.user.id, email: s.user.email ?? "" });
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   if (embedded || inEditor) return <App />;
-  if (!session) return <LandingPage onContinue={() => setSession(signInLocally())} />;
-  return <FrontPage session={session} onOpenEditor={() => setInEditor(true)} />;
+  if (!session) {
+    return (
+      <LandingPage
+        onContinue={() => setSession(signInLocally())}
+        onSignedIn={(s) => setSession(s)}
+      />
+    );
+  }
+  return (
+    <FrontPage
+      session={session}
+      onOpenEditor={() => setInEditor(true)}
+      onSignOut={() => {
+        void signOut();
+        try {
+          localStorage.removeItem(SESSION_KEY);
+        } catch {
+          // ignore
+        }
+        setSession(null);
+      }}
+    />
+  );
 }

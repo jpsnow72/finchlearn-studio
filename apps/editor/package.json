@@ -7,7 +7,8 @@
     "react-dom": "^18.3.1",
     "zustand": "^5.0.3",
     "@finch-studio/characters": "0.1.0",
-    "mediabunny": "^1.0.0"
+    "mediabunny": "^1.0.0",
+    "@supabase/supabase-js": "^2.45.0"
   },
   "description": "FinchLearn Studio editor app (extracted from @ocf/video-studio)",
   "devDependencies": {
