@@ -338,49 +338,49 @@ export async function exportVideoProject(
 
   try {
     rec.start(200);
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("The browser could not start the video encoder. Try Chrome or Edge.");
+  }
 
-    for (let f = 0; f < totalFrames; f++) {
-      const tMs = Math.min(totalMs, (f * 1000) / FPS);
-      // Active scene: later scene wins during crossfade overlap.
-      let segIdx = tl.length - 1;
-      for (let i = tl.length - 1; i >= 0; i--) {
-        if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
-          segIdx = i;
-          break;
-        }
+  for (let f = 0; f < totalFrames; f++) {
+    const tMs = Math.min(totalMs, (f * 1000) / FPS);
+    // Active scene: later scene wins during crossfade overlap.
+    let segIdx = tl.length - 1;
+    for (let i = tl.length - 1; i >= 0; i--) {
+      if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
+        segIdx = i;
+        break;
       }
-      const seg = tl[segIdx];
-      const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
+    }
+    const seg = tl[segIdx];
+    const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
 
-      // Fade: cross-dissolve with the previous scene over the overlap.
-      const alpha = transitionAlpha(project, tMs);
-      if (segIdx > 0 && alpha < 1) {
-        const prev = tl[segIdx - 1];
-        const prevLocal = Math.min(
-          prev.scene.durationMs,
-          tMs - prev.startMs,
-        );
-        renderSceneFrame(sctx, prev.scene, Math.max(0, prevLocal));
-        ctx.globalAlpha = 1;
-        ctx.drawImage(sceneCanvas, 0, 0);
-        renderSceneFrame(sctx, seg.scene, localT);
-        ctx.globalAlpha = alpha;
-        ctx.drawImage(sceneCanvas, 0, 0);
-        ctx.globalAlpha = 1;
-      } else {
-        renderSceneFrame(ctx, seg.scene, localT);
-      }
-
-      onProgress?.((f + 1) / totalFrames);
-      await new Promise((r) => setTimeout(r, frameMs));
+    // Fade: cross-dissolve with the previous scene over the overlap.
+    const alpha = transitionAlpha(project, tMs);
+    if (segIdx > 0 && alpha < 1) {
+      const prev = tl[segIdx - 1];
+      const prevLocal = Math.min(
+        prev.scene.durationMs,
+        tMs - prev.startMs,
+      );
+      renderSceneFrame(sctx, prev.scene, Math.max(0, prevLocal));
+      ctx.globalAlpha = 1;
+      ctx.drawImage(sceneCanvas, 0, 0);
+      renderSceneFrame(sctx, seg.scene, localT);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(sceneCanvas, 0, 0);
+      ctx.globalAlpha = 1;
+    } else {
+      renderSceneFrame(ctx, seg.scene, localT);
     }
 
-    rec.stop();
-    return await done;
-  } catch (error) {
-    if (rec.state !== "inactive") rec.stop();
-    throw error;
-  } finally {
-    stream.getTracks().forEach((track) => track.stop());
+    onProgress?.((f + 1) / totalFrames);
+    await new Promise((r) => setTimeout(r, frameMs));
   }
+
+  rec.stop();
+  return done.finally(() => {
+    stream.getTracks().forEach((track) => track.stop());
+  });
 }
