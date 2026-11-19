@@ -4,6 +4,7 @@ import { useStudioStore } from "../store";
 import { exportMp4Project, exportVideoProject } from "../videoExport";
 import { projectTimeline } from "@finch-studio/animation";
 import { uploadExportToCloud } from "../cloud";
+import { requestServerRender, serverRenderConfigured } from "../serverRender";
 import {
   exportFileBaseName,
   EXPORT_PRESETS,
@@ -77,6 +78,30 @@ export function TopBar() {
       }
     } catch (err) {
       setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doServerRender = async () => {
+    const preset = getExportPreset(presetId);
+    if (preset.kind !== "mp4" && preset.kind !== "video") {
+      setStatus("Server rendering produces MP4. Choose a video preset first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const baseName = exportFileBaseName(project.name || "video");
+      const blob = await requestServerRender(
+        project,
+        { width: preset.width ?? 1280, height: preset.height ?? 720 },
+        burnCaptions,
+        setStatus,
+      );
+      downloadBlob(blob, `${baseName}.mp4`);
+      await saveToLibrary(blob, baseName, "MP4");
+    } catch (err) {
+      setStatus(`Server render failed. ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
     }
@@ -215,7 +240,9 @@ export function TopBar() {
             <p className="muted small">
               Video downloads use MP4 when supported by your browser, otherwise WebM.
               GIF and audio-only encoding are not available in this client.
-              Files download to this device. The User Media Library and server render jobs are not connected.
+              Signed in? Finished videos also save to your media library.
+              Server rendering suits long or 1080p projects: our server does
+              the heavy lifting and finishes the audio loudness for you.
             </p>
             {busy && (
               <div className="export-progress">
@@ -228,6 +255,11 @@ export function TopBar() {
               <button type="button" onClick={() => setDialogOpen(false)} disabled={busy}>
                 Close
               </button>
+              {serverRenderConfigured && (
+                <button type="button" onClick={doServerRender} disabled={busy}>
+                  Render on server
+                </button>
+              )}
               <button type="button" className="primary" onClick={doExport} disabled={busy}>
                 {busy ? "Rendering..." : "Download"}
               </button>

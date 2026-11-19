@@ -1,0 +1,20 @@
+[Unit]
+Description=FinchLearn Studio server renderer
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/finch-render
+Environment=PORT=8791
+Environment=STUDIO_URL=https://studio.finchlearn.com
+Environment=PUBLIC_URL=https://render.finchlearn.com
+Environment=CHROME_PATH=/usr/bin/google-chrome-stable
+Environment=JOB_DIR=/var/lib/finch-render/jobs
+EnvironmentFile=/opt/finch-render/render.env
+ExecStart=/opt/node22/bin/node /opt/finch-render/server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

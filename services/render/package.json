@@ -1,0 +1,10 @@
+{
+  "name": "finch-render",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "FinchLearn Studio server renderer: headless Chrome drives the Studio app's own export, FFmpeg finishes (loudnorm + faststart).",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
