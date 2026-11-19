@@ -150,8 +150,13 @@ export function FrontPage({
   onOpenEditor: () => void;
   onSignOut: () => void;
 }) {
-  const projects = readList<SavedProject>(PROJECTS_KEY);
+  const listed = readList<SavedProject>(PROJECTS_KEY);
   const exportsList = readList<SavedExport>(EXPORTS_KEY);
+  const current = useStudioStore((s) => s.project);
+  const projects: SavedProject[] = [
+    { id: current.id, name: current.name, updatedAt: new Date().toISOString() },
+    ...listed.filter((p) => p.id !== current.id),
+  ];
   return (
     <main className="shell">
       <h1>Welcome back</h1>

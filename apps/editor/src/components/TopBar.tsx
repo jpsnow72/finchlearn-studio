@@ -58,6 +58,7 @@ export function TopBar() {
           { width: preset.width!, height: preset.height! },
         );
         downloadBlob(blob, `${baseName}.mp4`);
+        recordExport(baseName);
         setStatus("MP4 downloaded. Saving to the User Media Library is not connected in this build.");
       } else {
         const blob = await exportVideoProject(
@@ -67,12 +68,24 @@ export function TopBar() {
         );
         const extension = blob.type.includes("mp4") ? "mp4" : "webm";
         downloadBlob(blob, `${baseName}.${extension}`);
+        recordExport(baseName);
         setStatus(`Video downloaded as ${extension.toUpperCase()}. Saving to the User Media Library is not connected in this build.`);
       }
     } catch (err) {
       setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const recordExport = (name: string) => {
+    try {
+      const key = "finch-studio-exports";
+      const list = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
+      list.unshift({ id: `exp-${Date.now()}`, name, savedAt: new Date().toISOString() });
+      localStorage.setItem(key, JSON.stringify(list.slice(0, 12)));
+    } catch {
+      // Hub list is a nicety; export success never depends on it.
     }
   };
 
