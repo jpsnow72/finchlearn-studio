@@ -224,7 +224,8 @@ export function Root() {
   // starts from the friendly starter scene instead of a blank canvas.
   useEffect(() => {
     try {
-      if (localStorage.getItem("ocf.video-studio.project.v1")) return;
+      const fresh = new URLSearchParams(window.location.search).has("fresh");
+      if (!fresh && localStorage.getItem("ocf.video-studio.project.v1")) return;
       const state = useStudioStore.getState();
       const p = state.project;
       if (
