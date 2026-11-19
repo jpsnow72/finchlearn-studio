@@ -677,6 +677,89 @@ function drawCaptionOverlay(
   ctx.restore();
 }
 
+export interface SceneFramePng {
+  sceneId: string;
+  png: Uint8Array;
+}
+
+/**
+ * One representative PNG frame per scene, drawn with the exact same
+ * renderer the video paths use (background, viewport transform, clip
+ * ranges, drawObject, pre-rendered character sprites), so standalone
+ * exports (issue #56: SCORM poster, PowerPoint slides, PNG scenes) can
+ * never drift from the exported video frames. The representative moment
+ * is the scene's first spoken line when it has one, else its start.
+ */
+export async function renderProjectSceneFrames(
+  project: VideoProject,
+  dimensions: { width: number; height: number } = { width: 1280, height: 720 },
+): Promise<SceneFramePng[]> {
+  const { width, height } = dimensions;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("The selected video preset has invalid dimensions. Choose another preset.");
+  }
+  if (project.scenes.length === 0) throw new Error("Project has no scenes.");
+  const viewport = getRenderViewport(width, height);
+
+  const sprites = new Map<string, CharFrames>();
+  const chars: CharacterObject[] = [];
+  for (const scene of project.scenes) {
+    for (const o of scene.objects) {
+      if (o.type === "character") chars.push(o as CharacterObject);
+    }
+  }
+  await Promise.all(
+    chars.map(async (c) => {
+      const sprite = await buildCharacterFrames(c);
+      if (sprite) sprites.set(c.id, sprite);
+    }),
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get 2D canvas context.");
+
+  const frames: SceneFramePng[] = [];
+  for (const scene of project.scenes) {
+    let localT = 0;
+    for (const o of scene.objects) {
+      if (o.type !== "character") continue;
+      const first = ((o as CharacterObject).speech ?? [])
+        .filter((line) => line.text.trim())
+        .sort((a, b) => a.start - b.start)[0];
+      if (first) {
+        localT = first.start;
+        break;
+      }
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = scene.background ?? "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.setTransform(
+      viewport.scale,
+      0,
+      0,
+      viewport.scale,
+      viewport.offsetX,
+      viewport.offsetY,
+    );
+    for (const o of scene.objects) {
+      const range = timelineClipRange(o, scene.durationMs);
+      if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
+        drawObject(ctx, sprites, o, localT);
+      }
+    }
+    ctx.restore();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error(`Could not render a PNG frame for scene "${scene.name}".`);
+    frames.push({ sceneId: scene.id, png: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return frames;
+}
+
 /** Render the whole project to a browser-supported MP4 or WebM blob. */
 export async function exportVideoProject(
   project: VideoProject,

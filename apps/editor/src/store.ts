@@ -49,6 +49,10 @@ import {
 import type { SilenceOptions } from "@finch-studio/audio";
 import { characterForLegacyId } from "@finch-studio/characters";
 import type { EmbedContext } from "./embed";
+import {
+  applyTranscriptSentenceDeletion,
+  applyTranscriptWordDeletion,
+} from "./roughCut";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -324,6 +328,8 @@ interface VideoStudioState {
   addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
   rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
   tightenAudioSilence: (id: string, options?: Partial<SilenceOptions>) => void;
+  deleteTranscriptWords: (clipId: string, wordStartIndex: number, wordEndIndex: number) => void;
+  deleteTranscriptSentence: (clipId: string, sentenceIndex: number) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -1084,6 +1090,49 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
             endMs,
             scene.durationMs,
           ),
+        })),
+      );
+    },
+    // Text based rough cut (#45): each deletion maps a transcript word
+    // range to a ripple cut and commits once, so it is a single step
+    // on the shared undo stack. A clip without a ready transcript, or
+    // a range with nothing visible to cut, no-ops with no undo entry.
+    deleteTranscriptWords: (clipId, wordStartIndex, wordEndIndex) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      const result = applyTranscriptWordDeletion(
+        scene.objects,
+        clipId,
+        wordStartIndex,
+        wordEndIndex,
+        scene.durationMs,
+      );
+      if (!result) return;
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          durationMs: Math.max(500, current.durationMs - result.removedMs),
+          objects: result.objects,
+        })),
+      );
+    },
+    deleteTranscriptSentence: (clipId, sentenceIndex) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      const result = applyTranscriptSentenceDeletion(
+        scene.objects,
+        clipId,
+        sentenceIndex,
+        scene.durationMs,
+      );
+      if (!result) return;
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          durationMs: Math.max(500, current.durationMs - result.removedMs),
+          objects: result.objects,
         })),
       );
     },
