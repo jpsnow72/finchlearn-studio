@@ -22,6 +22,7 @@ import { DialoguePanel } from "./components/DialoguePanel";
 import { TranslatePanel } from "./components/TranslatePanel";
 import { MediaPanel } from "./components/MediaPanel";
 import { AudioPanel } from "./components/AudioPanel";
+import { RoughCutPanel } from "./components/RoughCutPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
@@ -227,6 +228,7 @@ export function App() {
           <DialoguePanel />
           <TranslatePanel />
           <AudioPanel tMs={clock.tMs} />
+          <RoughCutPanel />
           <LibraryPanel />
         </aside>
       </div>

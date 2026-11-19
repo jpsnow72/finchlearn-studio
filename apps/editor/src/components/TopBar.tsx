@@ -24,6 +24,12 @@ import {
   getExportPreset,
   type ExportPresetId,
 } from "../exportPresets";
+import {
+  exportStandalonePptx,
+  exportStandaloneScenePng,
+  exportStandaloneScenePngZip,
+  exportStandaloneScorm,
+} from "../standaloneExport";
 
 type CaptionOutput = "burn-in" | "srt" | "vtt" | "none";
 
@@ -131,6 +137,41 @@ export function TopBar() {
         await saveToLibrary(blob, baseName, extension.toUpperCase());
         if (adMode === "secondary") await downloadDescriptionTrack(baseName);
       }
+    } catch (err) {
+      setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Standalone exports (issue #56): SCORM packages, PowerPoint, and
+   * PNG scenes. Frames and video come from the same renderer as the
+   * MP4 paths; packaging lives in @finch-studio/standalone-export. */
+  const doStandalone = async (
+    kind: "scorm12" | "scorm2004" | "pptx" | "pngzip" | "pngscene",
+    sceneIndex = 0,
+  ) => {
+    const preset = getExportPreset(presetId);
+    const dimensions = { width: preset.width ?? 1280, height: preset.height ?? 720 };
+    setBusy(true);
+    setProgress(0);
+    try {
+      const result =
+        kind === "scorm12" || kind === "scorm2004"
+          ? await exportStandaloneScorm(
+              project,
+              kind === "scorm12" ? "1.2" : "2004",
+              dimensions,
+              (fraction) => setProgress(Math.round(fraction * 100)),
+              { captions: captionOutput === "burn-in" },
+            )
+          : kind === "pptx"
+            ? await exportStandalonePptx(project, dimensions)
+            : kind === "pngzip"
+              ? await exportStandaloneScenePngZip(project, dimensions)
+              : await exportStandaloneScenePng(project, dimensions, sceneIndex);
+      downloadBlob(result.blob, result.fileName);
+      await saveToLibrary(result.blob, exportFileBaseName(result.fileName), result.label);
     } catch (err) {
       setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -441,6 +482,38 @@ export function TopBar() {
               Server rendering suits long or 1080p projects: our server does
               the heavy lifting and finishes the audio loudness for you.
             </p>
+            <p className="muted small">
+              Standalone exports: SCORM packages play the rendered video in
+              any LMS and report completion when the video ends. PowerPoint
+              puts one scene per slide with the script in the speaker notes.
+              PNG exports give you each scene as an image.
+            </p>
+            <div className="export-actions">
+              <button type="button" onClick={() => doStandalone("scorm12")} disabled={busy}>
+                SCORM 1.2 (.zip)
+              </button>
+              <button type="button" onClick={() => doStandalone("scorm2004")} disabled={busy}>
+                SCORM 2004 (.zip)
+              </button>
+              <button type="button" onClick={() => doStandalone("pptx")} disabled={busy}>
+                PowerPoint (.pptx)
+              </button>
+              <button type="button" onClick={() => doStandalone("pngzip")} disabled={busy}>
+                PNG scenes (.zip)
+              </button>
+            </div>
+            <div className="export-actions">
+              {project.scenes.map((scene, index) => (
+                <button
+                  key={scene.id}
+                  type="button"
+                  onClick={() => doStandalone("pngscene", index)}
+                  disabled={busy}
+                >
+                  PNG: {scene.name}
+                </button>
+              ))}
+            </div>
             {busy && (
               <div className="export-progress">
                 <label htmlFor="render-progress">Rendering {progress}%</label>

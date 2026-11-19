@@ -123,7 +123,15 @@ export function withAudioClipMetadata(
   patch: Partial<AudioClipMetadata>,
 ): AudioObject {
   const extensions: Extensions = { ...(object.extensions ?? {}) };
+  // Preserve unrelated x-finch-studio metadata (for example the clip's
+  // transcript, #43/#45) alongside the audio fields: a trim or split
+  // rebuilds this record, and dropping the rest would silently strip
+  // the transcript from the resulting pieces.
+  const existing = isRecord(object.extensions?.[AUDIO_EXTENSION])
+    ? object.extensions[AUDIO_EXTENSION]
+    : {};
   extensions[AUDIO_EXTENSION] = {
+    ...existing,
     ...getAudioClipMetadata(object),
     ...patch,
     ...(patch.cleanVoice !== undefined
