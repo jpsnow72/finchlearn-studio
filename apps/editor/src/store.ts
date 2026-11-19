@@ -1010,6 +1010,9 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         patchScene(project, currentSceneId, (currentScene) => ({
           ...currentScene,
           objects: withCleanVoiceOnAllAudioClips(currentScene.objects, settings),
+        })),
+      );
+    },
     applyVoiceoverTake: (obj, lineRetimes) => {
       const { project, currentSceneId } = get();
       commit(
