@@ -62,8 +62,9 @@ describe("projectTimeline", () => {
 });
 
 describe("sceneContentDurationMs", () => {
-  it("uses the longest object, speech, or movement timing with a five-second minimum", () => {
+  it("uses timed content with a half-second minimum and defaults untimed scenes to five seconds", () => {
     const scene = makeVideoScene();
+    expect(sceneContentDurationMs(scene)).toBe(5000);
     scene.objects.push({
       id: "text",
       type: "text",
@@ -74,6 +75,10 @@ describe("sceneContentDurationMs", () => {
     });
     expect(sceneContentDurationMs(scene)).toBe(6000);
     scene.objects[0].timing = { start: 0, duration: 2 };
+    expect(sceneContentDurationMs(scene)).toBe(2000);
+    scene.objects[0].timing = { start: 0, duration: 0.1 };
+    expect(sceneContentDurationMs(scene)).toBe(500);
+    delete scene.objects[0].timing;
     expect(sceneContentDurationMs(scene)).toBe(5000);
   });
 });

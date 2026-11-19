@@ -42,7 +42,9 @@ export function sceneContentDurationMs(scene: VideoScene): number {
     }
     return ends.filter(Number.isFinite);
   });
-  return Math.max(DEFAULT_SCENE_DURATION_MS, ...endTimes);
+  return endTimes.length > 0
+    ? Math.max(500, ...endTimes)
+    : DEFAULT_SCENE_DURATION_MS;
 }
 
 export function makeVideoProject(name = "Untitled video"): VideoProject {

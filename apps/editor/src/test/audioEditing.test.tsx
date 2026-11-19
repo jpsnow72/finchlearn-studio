@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import type { AudioObject, CourseObject } from "@finch-studio/core";
+import { projectTimeline } from "@finch-studio/animation";
 import { Timeline } from "../components/Timeline";
 import {
   addAudioVolumeKeyframe,
@@ -90,6 +91,54 @@ describe("audio editing", () => {
     expect(audio.find((object) => object.id === "later")?.timing?.start).toBe(5);
     expect(edited.find((object) => object.id === laterText.id)?.timing?.start).toBe(3);
     expect(edited.find((object) => object.id === still.id)).toEqual(still);
+  });
+
+  it("keeps waveform edits independent across duplicated, reordered scenes and persists derived timing", () => {
+    const store = useStudioStore.getState();
+    store.newProject();
+    const originalId = useStudioStore.getState().currentSceneId;
+    store.addObject(audioClip);
+    store.addAudioVolumeKeyframe(audioClip.id, 2500, -12);
+    store.duplicateScene(originalId);
+    const duplicateId = useStudioStore.getState().currentSceneId;
+    const duplicateClip = useStudioStore.getState().project.scenes[1].objects[0];
+    expect(duplicateClip.id).not.toBe(audioClip.id);
+    store.updateAudioMetadata(duplicateClip.id, { fadeInMs: 450 });
+    store.rippleDeleteAudioRegion(1000, 2000);
+    store.setSceneTransition(duplicateId, "wipe");
+    store.renameScene(duplicateId, "Edited narration");
+    store.moveSceneTo(duplicateId, 0);
+
+    const project = useStudioStore.getState().project;
+    const [edited, original] = project.scenes;
+    expect(edited.id).toBe(duplicateId);
+    expect(edited.durationMs).toBe(4000);
+    expect(edited.transition).toBe("wipe");
+    expect(edited.objects.map((object) => object.timing)).toEqual([
+      { start: 0, duration: 1 },
+      { start: 1, duration: 3 },
+    ]);
+    expect(getAudioClipMetadata(edited.objects[0] as AudioObject).fadeInMs).toBe(450);
+    expect(getAudioClipMetadata(edited.objects[1] as AudioObject)).toMatchObject({
+      waveformPeaks: [0.5, 0.8, 0.3],
+      sourceOffsetMs: 2000,
+      volumeKeyframes: [{ timeMs: 500, decibels: -12 }],
+    });
+    expect(original.id).toBe(originalId);
+    expect(original.durationMs).toBe(5000);
+    expect(original.objects).toHaveLength(1);
+    expect(getAudioClipMetadata(original.objects[0] as AudioObject)).toMatchObject({
+      fadeInMs: 200,
+      volumeKeyframes: [{ timeMs: 2500, decibels: -12 }],
+    });
+    store.moveSceneTo(duplicateId, 1);
+    expect(projectTimeline(useStudioStore.getState().project).totalMs).toBe(8600);
+    expect(JSON.parse(localStorage.getItem("ocf.video-studio.project.v1")!)).toEqual(
+      useStudioStore.getState().project,
+    );
+    store.selectScene(originalId);
+    store.updateAudioMetadata(audioClip.id, { fadeOutMs: 600 });
+    expect(useStudioStore.getState().project.scenes[1]).toEqual(edited);
   });
 
   it("renders ingest peaks and adds a keyframe when the envelope is clicked", () => {
