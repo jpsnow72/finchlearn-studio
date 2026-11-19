@@ -465,7 +465,7 @@ describe("footage factory", () => {
     expect(clip.timing?.duration).toBe(3);
     expect(timelineLaneForObject(clip)).toBe("main");
   });
-}
+});
 
 describe("voiceover takes (#31)", () => {
   it("lands a chosen take on the voice lane and sets the scene duration from it", () => {

@@ -51,8 +51,6 @@ export function AudioPanel({ tMs }: { tMs: number }) {
   const [minSilenceMs, setMinSilenceMs] = useState(DEFAULT_SILENCE_OPTIONS.minSilenceMs);
   const [keepPauseMs, setKeepPauseMs] = useState(DEFAULT_SILENCE_OPTIONS.keepPauseMs);
   const setCleanVoiceOnAllClips = useStudioStore((s) => s.setCleanVoiceOnAllClips);
-  const [url, setUrl] = useState("");
-  const [db, setDb] = useState(0);
   const [compareModes, setCompareModes] = useState<Record<string, CleanVoiceCompareMode>>({});
   const [previewStatus, setPreviewStatus] = useState<Record<string, string>>({});
 
