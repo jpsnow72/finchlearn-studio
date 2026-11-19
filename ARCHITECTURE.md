@@ -15,7 +15,7 @@ One versioned JSON document per project (schema.ts): scenes with timed elements 
 ## State patterns
 - The editor store owns the open project; components never mutate project JSON directly.
 - Undo is one stack across scene and timeline edits.
-- Scene duration derives from the longest timed element, narration, or character movement, with a half-second minimum for timed scenes and a five-second default for untimed scenes.
+- Scene duration derives from the longest timed element, narration, or character movement, with a half-second minimum. Untimed scenes default to five seconds and retain shorter durations after ripple deletion.
 
 ## Rendering
 Preview in the browser on proxy media. Two export paths, both held to 1:1 parity with the stage canvas (golden frame tests): client WebCodecs plus Mediabunny as the default for standard timelines, and server FFmpeg workers for heavy footage, unsupported codecs, and headless MCP renders. Server renders are split by scene with segment caching.

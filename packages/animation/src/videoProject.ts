@@ -29,7 +29,7 @@ export function makeVideoScene(name?: string): VideoScene {
   };
 }
 
-/** Scene duration from timed content, with a five-second minimum for untimed content. */
+/** Scene duration from timed content; untimed scenes retain edits up to the five-second default. */
 export function sceneContentDurationMs(scene: VideoScene): number {
   const endTimes = scene.objects.flatMap((object) => {
     const ends: number[] = [];
@@ -44,7 +44,7 @@ export function sceneContentDurationMs(scene: VideoScene): number {
   });
   return endTimes.length > 0
     ? Math.max(500, ...endTimes)
-    : DEFAULT_SCENE_DURATION_MS;
+    : Math.min(DEFAULT_SCENE_DURATION_MS, Math.max(500, scene.durationMs));
 }
 
 export function makeVideoProject(name = "Untitled video"): VideoProject {

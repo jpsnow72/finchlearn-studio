@@ -141,6 +141,21 @@ describe("audio editing", () => {
     expect(useStudioStore.getState().project.scenes[1]).toEqual(edited);
   });
 
+  it("preserves the minimum scene duration after deleting all audio and editing the scene strip", () => {
+    const store = useStudioStore.getState();
+    store.newProject();
+    store.addObject(makeAudio("short", 0, 3));
+    const sceneId = useStudioStore.getState().currentSceneId;
+    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(3000);
+    store.rippleDeleteAudioRegion(0, 3000);
+    store.renameScene(sceneId, "Cleared narration");
+    store.duplicateScene(sceneId);
+    const { project } = useStudioStore.getState();
+    expect(project.scenes.map((scene) => scene.durationMs)).toEqual([500, 500]);
+    expect(project.scenes.map((scene) => scene.objects)).toEqual([[], []]);
+    expect(projectTimeline(project).totalMs).toBe(1000);
+  });
+
   it("renders ingest peaks and adds a keyframe when the envelope is clicked", () => {
     const container = document.createElement("div");
     document.body.append(container);

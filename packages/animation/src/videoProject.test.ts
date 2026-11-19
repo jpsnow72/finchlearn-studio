@@ -80,6 +80,10 @@ describe("sceneContentDurationMs", () => {
     expect(sceneContentDurationMs(scene)).toBe(500);
     delete scene.objects[0].timing;
     expect(sceneContentDurationMs(scene)).toBe(5000);
+    scene.durationMs = 1000;
+    expect(sceneContentDurationMs(scene)).toBe(1000);
+    scene.durationMs = 0;
+    expect(sceneContentDurationMs(scene)).toBe(500);
   });
 });
 
