@@ -199,6 +199,7 @@ interface VideoStudioState {
   timelineEditOrigin: VideoProject | null;
   currentSceneId: string;
   selectedObjectId: string | null;
+  selectedObjectIds: string[];
   selectedTimelineClipId: string | null;
   timelineSnapEnabled: boolean;
   tts: TtsSettings;
@@ -221,8 +222,9 @@ interface VideoStudioState {
   moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
   // objects
-  selectObject: (id: string | null) => void;
+  selectObject: (id: string | null, additive?: boolean) => void;
   addObject: (obj: CourseObject) => void;
+  insertObjectGroup: (objects: CourseObject[]) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
   setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
   removeObject: (id: string) => void;
@@ -461,6 +463,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     timelineEditOrigin: null,
     currentSceneId: initial.scenes[0]?.id ?? "",
     selectedObjectId: null,
+    selectedObjectIds: [],
     selectedTimelineClipId: null,
     timelineSnapEnabled: true,
     tts: { voiceId: undefined, rate: 1, pitch: 1 },
@@ -475,6 +478,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         timelineEditOrigin: null,
         currentSceneId: project.scenes[0]?.id ?? "",
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedTimelineClipId: null,
       });
     },
@@ -489,11 +493,12 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         timelineEditOrigin: null,
         currentSceneId: project.scenes[0].id,
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedTimelineClipId: null,
       });
     },
     undo: () => {
-      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedTimelineClipId } = get();
+      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedObjectIds, selectedTimelineClipId } = get();
       const previous = pastProjects[pastProjects.length - 1];
       if (!previous) return;
       persist(previous);
@@ -507,13 +512,16 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         selectedObjectId: scene.objects.some((item) => item.id === selectedObjectId)
           ? selectedObjectId
           : null,
+        selectedObjectIds: selectedObjectIds.filter((id) =>
+          scene.objects.some((item) => item.id === id),
+        ),
         selectedTimelineClipId: scene.objects.some((item) => item.id === selectedTimelineClipId)
           ? selectedTimelineClipId
           : null,
       });
     },
     redo: () => {
-      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedTimelineClipId } = get();
+      const { project, pastProjects, futureProjects, currentSceneId, selectedObjectId, selectedObjectIds, selectedTimelineClipId } = get();
       const next = futureProjects[0];
       if (!next) return;
       persist(next);
@@ -526,6 +534,9 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         selectedObjectId: scene.objects.some((item) => item.id === selectedObjectId)
           ? selectedObjectId
           : null,
+        selectedObjectIds: selectedObjectIds.filter((id) =>
+          scene.objects.some((item) => item.id === id),
+        ),
         selectedTimelineClipId: scene.objects.some((item) => item.id === selectedTimelineClipId)
           ? selectedTimelineClipId
           : null,
@@ -537,7 +548,12 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project } = get();
       const scene = makeVideoScene(`Scene ${project.scenes.length + 1}`);
       commit({ ...project, scenes: [...project.scenes, scene] });
-      set({ currentSceneId: scene.id, selectedTimelineClipId: null });
+      set({
+        currentSceneId: scene.id,
+        selectedObjectId: null,
+        selectedObjectIds: [],
+        selectedTimelineClipId: null,
+      });
     },
     duplicateScene: (id) => {
       const { project } = get();
@@ -557,6 +573,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       set({
         currentSceneId: duplicate.id,
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedTimelineClipId: null,
       });
     },
@@ -571,6 +588,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         set({
           currentSceneId: scenes[Math.min(removedIndex, scenes.length - 1)].id,
           selectedObjectId: null,
+          selectedObjectIds: [],
           selectedTimelineClipId: null,
         });
       }
@@ -600,9 +618,30 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit({ ...project, scenes });
     },
     selectScene: (id) =>
-      set({ currentSceneId: id, selectedObjectId: null, selectedTimelineClipId: null }),
+      set({
+        currentSceneId: id,
+        selectedObjectId: null,
+        selectedObjectIds: [],
+        selectedTimelineClipId: null,
+      }),
 
-    selectObject: (id) => set({ selectedObjectId: id }),
+    selectObject: (id, additive = false) => {
+      if (id === null) {
+        set({ selectedObjectId: null, selectedObjectIds: [] });
+        return;
+      }
+      if (!additive) {
+        set({ selectedObjectId: id, selectedObjectIds: [id] });
+        return;
+      }
+      const selectedObjectIds = get().selectedObjectIds.includes(id)
+        ? get().selectedObjectIds.filter((selectedId) => selectedId !== id)
+        : [...get().selectedObjectIds, id];
+      set({
+        selectedObjectId: selectedObjectIds.at(-1) ?? null,
+        selectedObjectIds,
+      });
+    },
     addObject: (obj) => {
       const { project, currentSceneId } = get();
       commit(
@@ -611,7 +650,22 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           objects: [...s.objects, obj],
         })),
       );
-      set({ selectedObjectId: obj.id });
+      set({ selectedObjectId: obj.id, selectedObjectIds: [obj.id] });
+    },
+    insertObjectGroup: (objects) => {
+      if (objects.length === 0) return;
+      const { project, currentSceneId } = get();
+      const copies = objects.map(duplicateObject);
+      commit(
+        patchScene(project, currentSceneId, (scene) => ({
+          ...scene,
+          objects: [...scene.objects, ...copies],
+        })),
+      );
+      set({
+        selectedObjectId: copies.at(-1)?.id ?? null,
+        selectedObjectIds: copies.map((object) => object.id),
+      });
     },
     updateObject: (id, patch) => {
       const { project, currentSceneId } = get();
@@ -639,7 +693,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           objects: s.objects.filter((o) => o.id !== id),
         })),
       );
-      if (get().selectedObjectId === id) set({ selectedObjectId: null });
+      const selectedObjectIds = get().selectedObjectIds.filter((selectedId) => selectedId !== id);
+      if (get().selectedObjectId === id || selectedObjectIds.length !== get().selectedObjectIds.length) {
+        set({
+          selectedObjectId: selectedObjectIds.at(-1) ?? null,
+          selectedObjectIds,
+        });
+      }
     },
     moveObject: (id, dir) => {
       const { project, currentSceneId } = get();

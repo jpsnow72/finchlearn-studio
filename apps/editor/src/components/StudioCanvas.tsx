@@ -33,6 +33,7 @@ export function StudioCanvas({
   const scene = useCurrentScene();
   const selected = useSelectedObject();
   const selectObject = useStudioStore((s) => s.selectObject);
+  const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addWaypoint = useStudioStore((s) => s.addWaypoint);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
@@ -94,7 +95,7 @@ export function StudioCanvas({
               })
               .map((o) => {
                 const pos = o.position ?? {};
-                const isSel = o.id === selected?.id;
+                const isSel = selectedObjectIds.includes(o.id);
                 const objectStyle = {
                   left: pos.x ?? 0,
                   top: pos.y ?? 0,
@@ -111,7 +112,7 @@ export function StudioCanvas({
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!pathEdit) selectObject(o.id);
+                      if (!pathEdit) selectObject(o.id, e.shiftKey);
                     }}
                   >
                     <StudioObjectRenderer object={o} />

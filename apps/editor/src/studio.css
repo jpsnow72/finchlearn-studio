@@ -331,7 +331,7 @@ input[type="range"] { accent-color: var(--accent); }
 .shell-empty { color: #71717a; font-size: 14px; }
 
 /* Wiring batch panels (media, audio, library) */
-.media-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.media-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .media-tabs button.active { font-weight: 600; text-decoration: underline; }
 .media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .media-thumb { display: flex; flex-direction: column; gap: 2px; padding: 4px; text-align: left; }
@@ -346,6 +346,7 @@ input[type="range"] { accent-color: var(--accent); }
 .lib-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .lib-row input { flex: 1; min-width: 100px; }
 .lib-snap { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border, #ddd); font-size: 12px; }
+.scene-group-list { max-height: 220px; overflow-y: auto; }
 
 /* Review fixes: ruler end label, right column clipping, landing hero */
 .timeline-ruler span:last-child { transform: translateX(-100%); }
