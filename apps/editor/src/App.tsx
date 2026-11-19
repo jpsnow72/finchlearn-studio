@@ -40,6 +40,7 @@ export function App() {
   const redo = useStudioStore((s) => s.redo);
 
   const [pathEdit, setPathEdit] = useState(false);
+  const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | null>("characters");
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
   const dialogueRef = useRef(new DialoguePlayer({ provider: browserTts }));
 
@@ -138,16 +139,28 @@ export function App() {
       <TopBar />
       <SceneManager />
       <div className="studio-main">
-        <aside className="studio-left">
-          <CharacterPicker />
-          <div className="panel">
-            <div className="panel-title">Add to scene</div>
-            <ObjectAdder />
-          </div>
-          <MediaPanel />
-          <TemplatesPanel />
-          <ScriptImport />
-        </aside>
+        <nav className="studio-rail" aria-label="Editor panels">
+          <button type="button" className={flyout === "characters" ? "active" : ""} onClick={() => setFlyout(flyout === "characters" ? null : "characters")} title="Characters and objects">🧑</button>
+          <button type="button" className={flyout === "media" ? "active" : ""} onClick={() => setFlyout(flyout === "media" ? null : "media")} title="Media library">🖼️</button>
+          <button type="button" className={flyout === "templates" ? "active" : ""} onClick={() => setFlyout(flyout === "templates" ? null : "templates")} title="Templates">📐</button>
+          <button type="button" className={flyout === "script" ? "active" : ""} onClick={() => setFlyout(flyout === "script" ? null : "script")} title="Script import">📜</button>
+        </nav>
+        {flyout && (
+          <aside className="studio-left studio-flyout">
+            {flyout === "characters" && (
+              <>
+                <CharacterPicker />
+                <div className="panel">
+                  <div className="panel-title">Add to scene</div>
+                  <ObjectAdder />
+                </div>
+              </>
+            )}
+            {flyout === "media" && <MediaPanel />}
+            {flyout === "templates" && <TemplatesPanel />}
+            {flyout === "script" && <ScriptImport />}
+          </aside>
+        )}
         <main className="studio-center">
           <StudioCanvas tMs={clock.tMs} pathEdit={pathEdit} />
           <Timeline

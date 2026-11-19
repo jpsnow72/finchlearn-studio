@@ -218,7 +218,6 @@ export function Root() {
   // First run seeding: a brand new user (nothing stored, not embedded)
   // starts from the friendly starter scene instead of a blank canvas.
   useEffect(() => {
-    if (embedded) return;
     try {
       if (localStorage.getItem("ocf.video-studio.project.v1")) return;
       const state = useStudioStore.getState();
@@ -234,6 +233,9 @@ export function Root() {
       // Storage unavailable: leave the blank project.
     }
   }, [embedded]);
+  // (An embedded open with a stashed course project is never blank, so it
+  // is never seeded; an embedded open with nothing stashed gets the
+  // starter like any other first run.)
 
   useEffect(() => {
     if (!supabaseEnabled) return;
