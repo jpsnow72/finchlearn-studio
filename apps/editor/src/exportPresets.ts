@@ -1,5 +1,4 @@
 import type {
-  CharacterObject,
   ProjectAspect,
   VideoProject,
 } from "@finch-studio/core";

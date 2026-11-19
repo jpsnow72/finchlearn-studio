@@ -67,6 +67,13 @@ function TranscriptStatusRow({ object }: { object: CourseObject }) {
   );
 }
 
+const ROLE_OPTIONS: { value: AudioClipRole; label: string }[] = [
+  { value: "voice", label: "Voice" },
+  { value: "music", label: "Music" },
+  { value: "sfx", label: "Sound effect" },
+  { value: "description", label: "Audio description" },
+];
+
 export function AudioPanel({ tMs }: { tMs: number }) {
   const scene = useCurrentScene();
   const addObject = useStudioStore((s) => s.addObject);

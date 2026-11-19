@@ -21,6 +21,7 @@ import {
 import {
   exportFileBaseName,
   EXPORT_PRESETS,
+  getExportPreset,
   formatCaptions,
   resolveExportPreset,
   type ExportPresetId,

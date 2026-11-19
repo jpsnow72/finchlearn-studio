@@ -413,7 +413,7 @@ export function studioToOCF(project: StudioProject): {
   const scenes: VideoScene[] = project.scenes.map((scene) => {
     sidecar.scenes[scene.id] = scene;
     const objects = scene.elements
-      .map((el) => elementToOCF(el))
+      .map((el) => elementToOCF(el, scene.markers))
       .filter((o): o is CourseObject => o !== null);
     attachCueMarkers(objects, scene);
     return {

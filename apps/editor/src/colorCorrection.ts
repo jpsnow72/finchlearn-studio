@@ -71,6 +71,9 @@ export function withObjectColorCorrection(
   const extensions: Extensions = { ...(object.extensions ?? {}) };
   if (Object.keys(metadata).length === 0) delete extensions[STUDIO_EXTENSION];
   else extensions[STUDIO_EXTENSION] = metadata;
+  if (Object.keys(extensions).length === 0) {
+    return { ...object, extensions: undefined } as CourseObject;
+  }
   return { ...object, extensions } as CourseObject;
 }
 

@@ -181,8 +181,10 @@ export function visiblePolyline(
       out.push(b);
       remaining -= seg;
     } else {
-      const f = remaining / seg;
-      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+      if (remaining > 0) {
+        const f = remaining / seg;
+        out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+      }
       return out;
     }
   }
