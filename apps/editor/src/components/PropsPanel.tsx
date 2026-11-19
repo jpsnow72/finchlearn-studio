@@ -6,13 +6,15 @@
  */
 import { useState } from "react";
 import type {
+  AnimationPreset,
+  AnimationPresetName,
   CharacterAnimationName,
   CharacterFacing,
   CharacterObject,
   CharacterSpeech,
 } from "@finch-studio/core";
-import { CHARACTER_ANIMATIONS } from "@finch-studio/core";
-import { useStudioStore, useSelectedObject } from "../store";
+import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS } from "@finch-studio/core";
+import { useStudioStore, useCurrentScene, useSelectedObject } from "../store";
 
 let speechCounter = 0;
 
@@ -24,7 +26,10 @@ export function PropsPanel({
   setPathEdit: (v: boolean) => void;
 }) {
   const obj = useSelectedObject();
+  const scene = useCurrentScene();
   const updateObject = useStudioStore((s) => s.updateObject);
+  const setObjectPresets = useStudioStore((s) => s.setObjectPresets);
+  const setScenePresets = useStudioStore((s) => s.setScenePresets);
   const removeObject = useStudioStore((s) => s.removeObject);
   const setCharAnimation = useStudioStore((s) => s.setCharAnimation);
   const setCharFacing = useStudioStore((s) => s.setCharFacing);
@@ -35,12 +40,30 @@ export function PropsPanel({
   const updateSpeech = useStudioStore((s) => s.updateSpeech);
   const removeSpeech = useStudioStore((s) => s.removeSpeech);
 
+  const presets = obj
+    ? obj.animations?.presets ?? []
+    : scene?.animations?.presets ?? [];
+  const updatePresets = (next: AnimationPreset[]) => {
+    if (obj) setObjectPresets(obj.id, next);
+    else if (scene) setScenePresets(scene.id, next);
+  };
+  const effectsPanel = (
+    <div className="panel effects-panel">
+      <div className="panel-title">Effects</div>
+      <p className="muted">{obj ? "Object effects" : "Scene effects"}</p>
+      <EffectsEditor presets={presets} onChange={updatePresets} />
+    </div>
+  );
+
   if (!obj) {
     return (
-      <div className="panel props-panel">
-        <div className="panel-title">Properties</div>
-        <p className="muted">Select an object on the stage.</p>
-      </div>
+      <>
+        {effectsPanel}
+        <div className="panel props-panel">
+          <div className="panel-title">Properties</div>
+          <p className="muted">Select an object on the stage.</p>
+        </div>
+      </>
     );
   }
 
@@ -53,7 +76,9 @@ export function PropsPanel({
     updateObject(obj.id, { position: { ...pos, ...patch } } as never);
 
   return (
-    <div className="panel props-panel">
+    <>
+      {effectsPanel}
+      <div className="panel props-panel">
       <div className="panel-title">Properties</div>
       <label className="field">
         <span>Name</span>
@@ -215,7 +240,113 @@ export function PropsPanel({
           Delete object
         </button>
       </div>
-    </div>
+      </div>
+    </>
+  );
+}
+
+function EffectsEditor({
+  presets,
+  onChange,
+}: {
+  presets: AnimationPreset[];
+  onChange: (presets: AnimationPreset[]) => void;
+}) {
+  const [category, setCategory] = useState<"enter" | "exit" | "emphasis">("enter");
+  const [presetName, setPresetName] = useState<AnimationPresetName>("fadeIn");
+  const choices = ANIMATION_PRESETS.filter((preset) => preset.category === category);
+  const selectedPreset = choices.some((preset) => preset.name === presetName)
+    ? presetName
+    : choices[0].name;
+
+  return (
+    <>
+      <label className="field">
+        <span>Preset type</span>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value as typeof category)}
+        >
+          <option value="enter">Enter</option>
+          <option value="exit">Exit</option>
+          <option value="emphasis">Emphasis</option>
+        </select>
+      </label>
+      <div className="field-row">
+        <label className="field effect-preset-select">
+          <span>Preset</span>
+          <select
+            value={selectedPreset}
+            onChange={(e) => setPresetName(e.target.value as AnimationPresetName)}
+          >
+            {choices.map((preset) => (
+              <option key={preset.name} value={preset.name} title={preset.hint}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() =>
+            onChange([...presets, { name: selectedPreset, start: 0, duration: 600 }])
+          }
+        >
+          Add preset
+        </button>
+      </div>
+      {presets.map((effect, index) => {
+        const definition = ANIMATION_PRESETS.find((preset) => preset.name === effect.name);
+        const update = (patch: Partial<AnimationPreset>) =>
+          onChange(presets.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+        return (
+          <div className="effect-item" key={`${effect.name}-${index}`}>
+            <div className="effect-heading">
+              <strong>{definition?.label ?? effect.name}</strong>
+              <button
+                type="button"
+                aria-label={`Remove ${definition?.label ?? effect.name}`}
+                onClick={() => onChange(presets.filter((_, i) => i !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            <div className="effect-options">
+              <label className="field-inline">
+                Delay
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  defaultValue={effect.start ?? 0}
+                  key={`${index}-delay-${effect.start ?? 0}`}
+                  onBlur={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isFinite(value)) update({ start: Math.max(0, value) });
+                  }}
+                />
+                ms
+              </label>
+              <label className="field-inline">
+                Duration
+                <input
+                  type="number"
+                  min={1}
+                  step={50}
+                  defaultValue={effect.duration ?? 600}
+                  key={`${index}-duration-${effect.duration ?? 600}`}
+                  onBlur={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isFinite(value)) update({ duration: Math.max(1, value) });
+                  }}
+                />
+                ms
+              </label>
+            </div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
