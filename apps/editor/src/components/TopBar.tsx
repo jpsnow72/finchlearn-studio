@@ -94,7 +94,7 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <div className="brand">🎬 OCF Video Studio</div>
+      <div className="brand">🎬 FinchLearn Studio</div>
       <input
         className="project-name"
         defaultValue={project.name}
