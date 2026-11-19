@@ -16,7 +16,7 @@
  */
 import { useEffect, useState } from "react";
 import { App } from "./App";
-import { currentSession, signIn, signOut, supabaseEnabled } from "./supabase";
+import { currentSession, signIn, signInWithGoogle, signOut, supabaseEnabled } from "./supabase";
 import { useStudioStore, makeStarterProject } from "./store";
 
 export interface StudioSession {
@@ -87,56 +87,179 @@ export function LandingPage({
     }
   };
 
+  const google = async () => {
+    setError("");
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google sign in failed.");
+    }
+  };
+
   return (
-    <main className="shell shell-hero">
-      <h1>Make training videos people actually finish.</h1>
-      <p>
-        FinchLearn Studio pairs Vyond style ease with the editing basics that
-        matter: real footage, clean audio, captions, and exports that keep
-        working forever, with no account required to play them.
-      </p>
-      {supabaseEnabled ? (
-        <form
-          className="shell-signin"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <input
-            type="email"
-            required
-            placeholder="Email (your FinchLearn account)"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-label="Email"
-          />
-          <input
-            type="password"
-            required
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            aria-label="Password"
-          />
-          <button type="submit" className="shell-cta" disabled={busy}>
-            {busy ? "Signing in..." : "Sign In"}
-          </button>
-          {error && <p className="shell-error">{error}</p>}
-        </form>
-      ) : (
-        <div className="shell-ctas">
-          <button type="button" className="shell-cta" onClick={onContinue}>
-            Start Creating Free
-          </button>
+    <main className="shell landing">
+      <header className="landing-nav">
+        <div className="landing-brand">🎬 FinchLearn Studio</div>
+        <a className="shell-cta secondary" href="#signin">
+          Sign in
+        </a>
+      </header>
+
+      <section className="landing-hero">
+        <div className="landing-copy">
+          <h1>Make training videos people actually finish.</h1>
+          <p className="landing-sub">
+            FinchLearn Studio pairs Vyond style ease with the editing basics
+            that matter: animated characters that act and speak, real footage,
+            clean audio, captions, and exports that keep working forever.
+          </p>
+          <ul className="landing-checks">
+            <li>Paste a script, get a directed video: scenes, dialogue, and lip sync built for you</li>
+            <li>39 production voices, from warm basic narration to premium studio voices</li>
+            <li>Send finished videos straight into your FinchLearn courses</li>
+          </ul>
+          <p className="landing-launch">
+            Launching with FinchLearn in mid-December 2026.
+          </p>
         </div>
-      )}
-      <div className="shell-features">
-        <div className="shell-feature"><strong>Characters that act</strong>Animated characters with actions, expressions, and lip sync, no drawing required.</div>
-        <div className="shell-feature"><strong>Real editing basics</strong>Scenes, a capped timeline, trims, transitions, audio fades and keyframes.</div>
-        <div className="shell-feature"><strong>Exports that last</strong>MP4 and captions that keep working forever, with no account needed to play them.</div>
-        <div className="shell-feature"><strong>Drops into courses</strong>Built for FinchLearn: send a finished video straight into a course block.</div>
-      </div>
+
+        <div className="landing-signin" id="signin">
+          <h2>Welcome back</h2>
+          <p className="muted">Sign in with your FinchLearn account.</p>
+          {supabaseEnabled ? (
+            <>
+              <button type="button" className="google-btn" onClick={() => void google()}>
+                <span className="google-g">G</span> Continue with Google
+              </button>
+              <div className="signin-divider">
+                <span>or</span>
+              </div>
+              <form
+                className="shell-signin landing-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submit();
+                }}
+              >
+                <input
+                  type="email"
+                  required
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-label="Email"
+                />
+                <input
+                  type="password"
+                  required
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-label="Password"
+                />
+                <button type="submit" className="shell-cta" disabled={busy}>
+                  {busy ? "Signing in..." : "Sign In"}
+                </button>
+                {error && <p className="shell-error">{error}</p>}
+              </form>
+              <div className="landing-newaccount">
+                <strong>New to FinchLearn?</strong> Account sign-up is not
+                open yet. Studio accounts arrive with the FinchLearn launch
+                in mid-December 2026. Want early access to the beta? Email{" "}
+                <a href="mailto:support@finchlearn.com?subject=Studio%20beta%20access">
+                  support@finchlearn.com
+                </a>{" "}
+                and mention Studio.
+              </div>
+            </>
+          ) : (
+            <div className="shell-ctas">
+              <button type="button" className="shell-cta" onClick={onContinue}>
+                Start Creating Free
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <h2>How it works</h2>
+        <div className="landing-steps">
+          <div className="landing-step">
+            <strong>1. Write or paste a script</strong>
+            Studio builds the scenes, assigns the dialogue, and times every
+            line to real narration.
+          </div>
+          <div className="landing-step">
+            <strong>2. Direct your cast</strong>
+            Pick characters, actions, and expressions. Add footage, images,
+            music, and captions on a simple timeline.
+          </div>
+          <div className="landing-step">
+            <strong>3. Export anywhere</strong>
+            MP4 and captions that play forever with no account or
+            subscription, or drop the video straight into a FinchLearn
+            course.
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <h2>Why creators switch</h2>
+        <div className="shell-features landing-features">
+          <div className="shell-feature">
+            <strong>Characters that act</strong>
+            A rigged cast with ten actions, switchable expressions, and lip
+            sync from your dialogue. No drawing, no stock-photo stiffness.
+          </div>
+          <div className="shell-feature">
+            <strong>Voices that sound human</strong>
+            39 production voices built in, basic and premium, generated per
+            line and mixed into every export automatically.
+          </div>
+          <div className="shell-feature">
+            <strong>Real editing basics</strong>
+            Scenes, a capped timeline, trims, transitions, audio fades,
+            volume keyframes, and music that ducks under narration.
+          </div>
+          <div className="shell-feature">
+            <strong>Captions without the chore</strong>
+            Caption files from your dialogue in one click, plus a burned-in
+            captions option for muted autoplay feeds.
+          </div>
+          <div className="shell-feature">
+            <strong>Made for courses</strong>
+            Studio is the video companion to FinchLearn: open it inside a
+            course block, finish the video, and it lands in the course.
+          </div>
+          <div className="shell-feature">
+            <strong>Exports that last</strong>
+            Your MP4s keep working forever. Cancel, downgrade, walk away:
+            published videos never phone home.
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-band">
+        <h2>Switch &amp; Keep</h2>
+        <div className="landing-band-points">
+          <span>Cheaper at every tier than the big animation suites</span>
+          <span>Exports run forever, no subscription required to play them</span>
+          <span>No expiring AI credits, plain generous allowances</span>
+          <span>Your work stays yours: download everything, any time</span>
+        </div>
+        <p className="muted">
+          FinchLearn plans: Community free · Keeper $99/yr · Creator $29/mo ·
+          Studio $49/mo. Full details at finchlearn.com.
+        </p>
+      </section>
+
+      <footer className="landing-footer">
+        <span>🎬 FinchLearn Studio</span>
+        <span>
+          Questions? <a href="mailto:support@finchlearn.com">support@finchlearn.com</a>
+        </span>
+      </footer>
     </main>
   );
 }

@@ -27,6 +27,15 @@ export async function signIn(email: string, password: string): Promise<Session> 
   return data.session;
 }
 
+export async function signInWithGoogle(): Promise<void> {
+  if (!supabase) throw new Error("Sign in is not configured in this build.");
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/` },
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function signOut(): Promise<void> {
   await supabase?.auth.signOut();
 }
