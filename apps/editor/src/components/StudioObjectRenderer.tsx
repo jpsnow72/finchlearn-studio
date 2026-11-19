@@ -18,9 +18,11 @@ import {
   visemesFromText,
 } from "@finch-studio/characters";
 import { studioActionFor } from "../videoExport";
+import { textDirectionOf } from "@finch-studio/translation";
 
 function CharacterView({ object }: { object: CharacterObject }) {
   const tMs = useContext(SceneTimeContext);
+  const dir = textDirectionOf(object);
   const def = defWithColors(characterForLegacyId(object.characterId), object.colors);
   const now = tMs ?? 0;
   const line = (object.speech ?? []).find(
@@ -39,7 +41,12 @@ function CharacterView({ object }: { object: CharacterObject }) {
         style={{ width: "100%", height: "100%" }}
       />
       {line?.text && (
-        <div className="speech-bubble" role="note">
+        <div
+          className="speech-bubble"
+          role="note"
+          {...(dir ? { dir } : {})}
+          style={dir === "rtl" ? { textAlign: "right" } : undefined}
+        >
           {line.text}
         </div>
       )}
@@ -65,9 +72,11 @@ export function StudioObjectRenderer({ object }: { object: CourseObject }) {
         fontSize: 22,
         lineHeight: 1.35,
       };
+      const dir = textDirectionOf(object);
       return (
         <div
           style={style}
+          {...(dir ? { dir } : {})}
           dangerouslySetInnerHTML={{ __html: object.content ?? "" }}
         />
       );

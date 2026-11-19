@@ -10,6 +10,8 @@
  * gain at their points.
  */
 
+import type { CleanVoiceSettings } from "./cleanVoice.js";
+
 export type AudioRole = "voice" | "music" | "sfx" | "description";
 
 export interface VolumeKeyframe {
@@ -38,6 +40,8 @@ export interface AudioClip {
    * can emit a timed VTT track for the description alongside captions.
    */
   descriptionText?: string;
+  /** Clean Voice cleanup (#29). Absent or disabled means no processing. */
+  cleanVoice?: CleanVoiceSettings;
 }
 
 export interface DuckingSettings {

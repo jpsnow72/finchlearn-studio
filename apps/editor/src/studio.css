@@ -347,6 +347,9 @@ input[type="range"] { accent-color: var(--accent); }
 .audio-clip label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 4px 0; }
 .audio-clip input[type="number"] { width: 80px; }
 .audio-kf-row { display: flex; gap: 6px; align-items: center; }
+.clean-voice { margin-top: 6px; }
+.clean-voice-compare { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.clean-voice-compare button[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
 .audio-add { display: flex; gap: 6px; margin-top: 8px; }
 .audio-add input { flex: 1; min-width: 0; }
 .lib-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
@@ -386,6 +389,11 @@ input[type="range"] { accent-color: var(--accent); }
 .narration-lines li { display: flex; gap: 6px; align-items: center; font-size: 12px; }
 .narration-line-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narration-line-state { color: var(--muted); flex: none; }
+.voiceover { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.voiceover-prompter { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.voiceover-prompter li { padding: 6px 8px; border-radius: 6px; background: var(--bg3); color: var(--muted); }
+.voiceover-prompter li.active { color: var(--text); outline: 2px solid var(--accent); }
+.voiceover-speaker { font-weight: 700; }
 
 /* Sales landing page */
 .landing { max-width: 1080px; margin: 0 auto; padding: 20px 20px 48px; text-align: left; }

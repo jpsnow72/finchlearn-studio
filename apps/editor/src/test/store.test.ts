@@ -8,10 +8,12 @@ import {
   TIMELINE_LANES,
   snapTimelineTime,
   useStudioStore,
+  isVoiceoverClip,
   makeStudioCharacter,
   makeStudioShape,
   makeStudioVideo,
   timelineLaneForObject,
+  makeStudioVoiceover,
 } from "../store.js";
 import { getCaptionCues, getCaptionStyle } from "../captions.js";
 import { formatCaptions } from "../exportPresets.js";
@@ -462,6 +464,42 @@ describe("footage factory", () => {
     expect(clip.type).toBe("video");
     expect(clip.timing?.duration).toBe(3);
     expect(timelineLaneForObject(clip)).toBe("main");
+describe("voiceover takes (#31)", () => {
+  it("lands a chosen take on the voice lane and sets the scene duration from it", () => {
+    const s = useStudioStore.getState();
+    const character = makeStudioCharacter("student");
+    s.addObject(character);
+    s.addSpeech(character.id, { id: "line-1", text: "Hello", start: 0, duration: 2000 });
+
+    const take = makeStudioVoiceover("blob:take-1", "Voiceover take 1", 4500, "take-1");
+    s.applyVoiceoverTake(take, [
+      { characterId: character.id, lineId: "line-1", start: 0, duration: 4500 },
+    ]);
+    const scene = useStudioStore.getState().project.scenes[0];
+    const clips = scene.objects.filter((o) => isVoiceoverClip(o));
+    expect(clips).toHaveLength(1);
+    expect(clips[0].timing).toEqual({ start: 0, duration: 4.5 });
+    expect(scene.durationMs).toBe(4500);
+  });
+
+  it("replaces the previous take when a new one is chosen, and clears on request", () => {
+    const s = useStudioStore.getState();
+    s.applyVoiceoverTake(makeStudioVoiceover("blob:a", "Take A", 3000, "a"), []);
+    s.applyVoiceoverTake(makeStudioVoiceover("blob:b", "Take B", 6000, "b"), []);
+    let scene = useStudioStore.getState().project.scenes[0];
+    const clips = scene.objects.filter((o) => isVoiceoverClip(o));
+    expect(clips).toHaveLength(1);
+    expect((clips[0] as { resource?: string }).resource).toBe("blob:b");
+    expect(scene.durationMs).toBe(6000);
+
+    s.clearSceneVoiceover();
+    scene = useStudioStore.getState().project.scenes[0];
+    expect(scene.objects.some((o) => isVoiceoverClip(o))).toBe(false);
+  });
+
+  it("clamps a take duration to the minimum clip length", () => {
+    const take = makeStudioVoiceover("blob:tiny", "Tiny", 20, "tiny");
+    expect(take.timing?.duration).toBe(0.1);
   });
 });
 

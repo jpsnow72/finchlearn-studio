@@ -19,6 +19,7 @@ import { StudioCanvas } from "./components/StudioCanvas";
 import { CharacterPicker } from "./components/CharacterPicker";
 import { PropsPanel } from "./components/PropsPanel";
 import { DialoguePanel } from "./components/DialoguePanel";
+import { TranslatePanel } from "./components/TranslatePanel";
 import { MediaPanel } from "./components/MediaPanel";
 import { AudioPanel } from "./components/AudioPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
@@ -26,7 +27,7 @@ import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
 import { CaptionsPanel } from "./components/CaptionsPanel";
 import { Timeline } from "./components/Timeline";
-import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId } from "./store";
+import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId, isVoiceoverClip } from "./store";
 import { narrationTts } from "./narrationProvider";
 import { syncProjectToCloud } from "./cloud";
 
@@ -110,10 +111,13 @@ export function App() {
     undo,
   ]);
 
-  // Drive TTS dialogue from the clock.
+  // Drive TTS dialogue from the clock. A scene with a chosen recorded
+  // voiceover (#31) does not also speak its lines with TTS in preview;
+  // exports mix the recording itself (see buildProjectAudio).
   useEffect(() => {
     if (!scene) return;
     if (!clock.playing) return;
+    if (scene.objects.some((o) => isVoiceoverClip(o))) return;
     const lines = (
       scene.objects.filter((o) => o.type === "character") as CharacterObject[]
     ).flatMap((c) =>
@@ -221,6 +225,7 @@ export function App() {
         <aside className="studio-right">
           <PropsPanel pathEdit={pathEdit} setPathEdit={setPathEdit} />
           <DialoguePanel />
+          <TranslatePanel />
           <AudioPanel tMs={clock.tMs} />
           <LibraryPanel />
         </aside>

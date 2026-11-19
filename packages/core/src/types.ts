@@ -655,6 +655,13 @@ export interface VideoProject {
   id: string;
   name: string;
   scenes: VideoScene[];
+  /**
+   * Tool-specific project metadata in the established extension style
+   * (additive, optional; absent = a plain project). Translation
+   * variants (Studio issue #54) record their source linkage under
+   * extensions["x-finch-studio"].
+   */
+  extensions?: Extensions;
 }
 
 /**
