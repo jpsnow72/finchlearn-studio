@@ -28,9 +28,14 @@ import {
 } from "@finch-studio/animation";
 import {
   addAudioVolumeKeyframe,
+  analyzeClipSilence,
+  getAudioClipMetadata,
   rippleDeleteAudioRegion as rippleDeleteRegion,
+  tightenClipSilence,
   withAudioClipMetadata,
+  withCleanVoiceOnAllAudioClips,
   type AudioClipMetadata,
+  type CleanVoiceSettings,
 } from "./audioEditing";
 import {
   copyCaptionEditsForScene,
@@ -41,6 +46,7 @@ import {
   type CaptionProject,
   type CaptionStyle,
 } from "./captions";
+import type { SilenceOptions } from "@finch-studio/audio";
 import { characterForLegacyId } from "@finch-studio/characters";
 import type { EmbedContext } from "./embed";
 
@@ -128,6 +134,36 @@ export function makeStudioAudio(resource: string, name = "Audio"): CourseObject 
     position: { x: 40, y: 40, w: 220, h: 48 },
     resource,
   } as CourseObject;
+}
+
+/**
+ * A chosen voiceover take as a scene audio clip (issue #31): an audio
+ * object on the voice lane (the default lane for audio), timed from
+ * the scene start for exactly the take's length and marked as the
+ * scene voiceover in its clip metadata, so the store's duration
+ * derivation sets the scene duration from the take the same way it
+ * derives it from generated narration line durations.
+ */
+export function makeStudioVoiceover(
+  resource: string,
+  name: string,
+  durationMs: number,
+  takeId: string,
+): CourseObject {
+  const base = makeStudioAudio(resource, name) as AudioObject;
+  const duration = Math.max(MIN_CLIP_DURATION_MS, Math.round(durationMs));
+  return withAudioClipMetadata(
+    { ...base, timing: { start: 0, duration: duration / 1000 } },
+    { voiceover: true, voiceoverTakeId: takeId },
+  ) as CourseObject;
+}
+
+/** True when an object is a scene's chosen voiceover clip (#31). */
+export function isVoiceoverClip(object: CourseObject): boolean {
+  return (
+    object.type === "audio" &&
+    getAudioClipMetadata(object as AudioObject).voiceover === true
+  );
 }
 
 export function makeStarterProject(name = "Untitled video"): VideoProject {
@@ -279,8 +315,15 @@ interface VideoStudioState {
   rippleDeleteTimelineClip: (id: string) => void;
   rippleDeleteGapAt: (atMs: number) => void;
   updateAudioMetadata: (id: string, patch: Partial<AudioClipMetadata>) => void;
+  setCleanVoiceOnAllClips: (settings: CleanVoiceSettings) => void;
+  applyVoiceoverTake: (
+    obj: CourseObject,
+    lineRetimes: { characterId: string; lineId: string; start: number; duration: number }[],
+  ) => void;
+  clearSceneVoiceover: () => void;
   addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
   rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
+  tightenAudioSilence: (id: string, options?: Partial<SilenceOptions>) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -959,6 +1002,54 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         ),
       );
     },
+    setCleanVoiceOnAllClips: (settings) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      commit(
+        patchScene(project, currentSceneId, (currentScene) => ({
+          ...currentScene,
+          objects: withCleanVoiceOnAllAudioClips(currentScene.objects, settings),
+        })),
+      );
+    },
+    applyVoiceoverTake: (obj, lineRetimes) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchScene(project, currentSceneId, (scene) => {
+          // One chosen take per scene: a new choice replaces the old clip.
+          const withoutOld = scene.objects.filter((o) => !isVoiceoverClip(o));
+          const retimed = withoutOld.map((o) => {
+            const c = asCharacter(o);
+            if (!c?.speech) return o;
+            const patches = lineRetimes.filter((p) => p.characterId === c.id);
+            if (patches.length === 0) return o;
+            return {
+              ...c,
+              speech: c.speech.map((line) => {
+                const patch = patches.find((p) => p.lineId === line.id);
+                return patch
+                  ? { ...line, start: patch.start, duration: patch.duration }
+                  : line;
+              }),
+            };
+          });
+          return { ...scene, objects: [...retimed, obj] };
+        }),
+      );
+      set({ selectedObjectId: obj.id, selectedObjectIds: [obj.id] });
+    },
+    clearSceneVoiceover: () => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene?.objects.some((o) => isVoiceoverClip(o))) return;
+      commit(
+        patchScene(project, currentSceneId, (s) => ({
+          ...s,
+          objects: s.objects.filter((o) => !isVoiceoverClip(o)),
+        })),
+      );
+    },
     addAudioVolumeKeyframe: (id, timeMs, decibels) => {
       const { project, currentSceneId } = get();
       const scene = project.scenes.find((item) => item.id === currentSceneId);
@@ -993,6 +1084,24 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
             endMs,
             scene.durationMs,
           ),
+        })),
+      );
+    },
+
+    tightenAudioSilence: (id, options) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      const clip = scene?.objects.find(
+        (object): object is AudioObject => object.type === "audio" && object.id === id,
+      );
+      if (!scene || !clip) return;
+      const { plan } = analyzeClipSilence(clip, scene.durationMs, options);
+      if (plan.totalRemovedMs <= 0) return;
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          durationMs: Math.max(500, current.durationMs - plan.totalRemovedMs),
+          objects: tightenClipSilence(current.objects, id, plan, scene.durationMs),
         })),
       );
     },

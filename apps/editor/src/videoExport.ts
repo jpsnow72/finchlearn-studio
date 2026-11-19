@@ -16,8 +16,9 @@
  * composited per frame. Path movement and facing are honored.
  *
  * Multi-scene: scenes render per projectTimeline with their seam transitions.
- * Audio is not mixed on the client paths yet; narration audio joins in
- * the server pipeline and the audio panel work.
+ * Audio mixes through buildProjectAudio (shared by both client paths
+ * and by the server render host): narration, clips with fades and
+ * volume keyframes, music ducking, and per clip Clean Voice (#29).
  */
 import type {
   CharacterObject,
@@ -44,12 +45,15 @@ import { timelineClipRange, timelineLaneForObject, characterVoiceId } from "./st
 import {
   audioRoleForObject,
   getAudioClipMetadata,
+  getCleanVoiceSettings,
   isDescriptionObject,
 } from "./audioEditing";
 import {
+  connectCleanVoice,
   encodeWav,
   planAudioExport,
   type AudioClip as EngineAudioClip,
+  type CleanVoiceContext,
   type DescriptionExportMode,
 } from "@finch-studio/audio";
 import { ensureLineAudio } from "./narration";
@@ -506,9 +510,17 @@ async function renderProjectAudio(
     }
   };
 
-  // Narration.
+  // Narration. A scene with a chosen recorded voiceover (#31) speaks
+  // with the recording instead: its lines are not generated here, and
+  // the voiceover clip itself is scheduled in the audio clips loop
+  // below like any other audio clip.
   for (const entry of tl) {
     if (mode.onlyDescription) break;
+    const hasVoiceover = entry.scene.objects.some(
+      (o) => o.type === "audio" && getAudioClipMetadata(o as AudioObject).voiceover,
+    );
+    if (hasVoiceover) continue;
+
     for (const o of entry.scene.objects) {
       if (o.type !== "character") continue;
       const voice = characterVoiceId(o);
@@ -556,7 +568,22 @@ async function renderProjectAudio(
       const fadeGain = ctx.createGain();
       const keyGain = ctx.createGain();
       const duckGain = ctx.createGain();
-      src.connect(fadeGain).connect(keyGain).connect(duckGain).connect(ctx.destination);
+      // Clean Voice (#29) sits between the keyframe gain and the duck
+      // gain. When the clip has it off, connectCleanVoice creates no
+      // nodes and the wiring is exactly the pre Clean Voice chain.
+      // Both client export paths and the server render path share
+      // this mix (the render host drives exportMp4Project), so the
+      // cleanup is identical everywhere.
+      const clean = connectCleanVoice(
+        ctx as unknown as CleanVoiceContext,
+        duckGain as never,
+        getCleanVoiceSettings(ao),
+      );
+      src.connect(fadeGain);
+      fadeGain.connect(keyGain);
+      keyGain.connect(clean.input as unknown as AudioNode);
+      if (!clean.bypassed) (clean.output as unknown as AudioNode).connect(duckGain);
+      duckGain.connect(ctx.destination);
       const startSec = (entry.startMs + range.startMs) / 1000;
       const durSec = Math.min(range.durationMs / 1000, buf.duration - (meta.sourceOffsetMs ?? 0) / 1000);
       if (durSec <= 0) continue;

@@ -1,5 +1,15 @@
 import { newVideoId } from "@finch-studio/animation";
 import type { AudioObject, CourseObject, Extensions } from "@finch-studio/core";
+import {
+  planSilenceTightening,
+  type SilenceOptions,
+  type SilenceTighteningPlan,
+  DEFAULT_CLEAN_VOICE,
+  normalizeCleanVoiceSettings,
+  type CleanVoiceSettings,
+} from "@finch-studio/audio";
+
+export type { CleanVoiceSettings };
 
 export interface AudioVolumeKeyframe {
   timeMs: number;
@@ -22,6 +32,12 @@ export interface AudioClipMetadata {
   role?: AudioClipRole;
   /** AD script text for a description clip; becomes its VTT cue text. */
   descriptionText?: string;
+  /** Clean Voice (#29). Absent means OFF: the clip renders exactly as before. */
+  cleanVoice?: CleanVoiceSettings;
+  /** True when this clip is the scene's chosen recorded voiceover (#31). */
+  voiceover?: boolean;
+  /** Id of the voiceover take this clip was chosen from (#31). */
+  voiceoverTakeId?: string;
 }
 
 const AUDIO_ROLES: readonly AudioClipRole[] = ["voice", "music", "sfx", "description"];
@@ -39,6 +55,11 @@ export function audioRoleForObject(
 
 export function isDescriptionObject(object: AudioObject, lane?: string): boolean {
   return audioRoleForObject(object, lane) === "description";
+}
+
+/** The clip's Clean Voice setting, defaulting to OFF when never set. */
+export function getCleanVoiceSettings(object: AudioObject): CleanVoiceSettings {
+  return getAudioClipMetadata(object).cleanVoice ?? { ...DEFAULT_CLEAN_VOICE };
 }
 
 const AUDIO_EXTENSION = "x-finch-studio";
@@ -79,6 +100,15 @@ export function getAudioClipMetadata(object: AudioObject): AudioClipMetadata {
       ? (raw.role as AudioClipRole)
       : undefined,
     descriptionText: typeof raw.descriptionText === "string" ? raw.descriptionText : undefined,
+    cleanVoice:
+      raw.cleanVoice === undefined
+        ? undefined
+        : normalizeCleanVoiceSettings(raw.cleanVoice),
+    voiceover: raw.voiceover === true ? true : undefined,
+    voiceoverTakeId:
+      typeof raw.voiceoverTakeId === "string" && raw.voiceoverTakeId
+        ? raw.voiceoverTakeId
+        : undefined,
   };
 }
 
@@ -96,8 +126,30 @@ export function withAudioClipMetadata(
   extensions[AUDIO_EXTENSION] = {
     ...getAudioClipMetadata(object),
     ...patch,
+    ...(patch.cleanVoice !== undefined
+      ? { cleanVoice: normalizeCleanVoiceSettings(patch.cleanVoice) }
+      : {}),
   };
   return { ...object, extensions };
+}
+
+/**
+ * Apply one Clean Voice setting to every audio clip in a scene (the
+ * "apply to all voice clips" path, #29). The editor's audio clips all
+ * sit on the voice lane by default; clips are plain audio objects, so
+ * every audio object in the scene is a candidate. Non-audio objects
+ * pass through untouched and inputs are never mutated.
+ */
+export function withCleanVoiceOnAllAudioClips(
+  objects: CourseObject[],
+  settings: CleanVoiceSettings,
+): CourseObject[] {
+  const normalized = normalizeCleanVoiceSettings(settings);
+  return objects.map((object) =>
+    object.type === "audio"
+      ? withAudioClipMetadata(object as AudioObject, { cleanVoice: normalized })
+      : object,
+  );
 }
 
 export function decibelsToVolume(decibels: number): number {
@@ -170,6 +222,71 @@ function withTrimmedAudio(
       duration: durationMs / 1000,
     },
   };
+}
+
+export interface ClipSilenceAnalysis {
+  /** False when the clip carries no ingest peaks to detect from. */
+  hasPeaks: boolean;
+  durationMs: number;
+  plan: SilenceTighteningPlan;
+}
+
+/**
+ * Silence analysis for one clip (issue #30), from the waveform peaks
+ * stored at ingest. Detection lives in @finch-studio/audio so the panel,
+ * the preview timing, and the export mix all read the same plan.
+ */
+export function analyzeClipSilence(
+  object: AudioObject,
+  sceneDurationMs: number,
+  options?: Partial<SilenceOptions>,
+): ClipSilenceAnalysis {
+  const metadata = getAudioClipMetadata(object);
+  const peaks = metadata.waveformPeaks ?? [];
+  const durationMs = Math.max(
+    0,
+    Math.round((object.timing?.duration ?? sceneDurationMs / 1000) * 1000),
+  );
+  return {
+    hasPeaks: peaks.length > 0,
+    durationMs,
+    plan: planSilenceTightening(peaks, durationMs, options),
+  };
+}
+
+/**
+ * Apply a tightening plan to a scene's objects as ripple trims: each cut
+ * goes through the same ripple delete the timeline region tool uses, so
+ * the target clip splits with correct source offsets and peaks, later
+ * objects shift earlier, and the result is ordinary clips the export mix
+ * schedules exactly like the preview. Cuts run last to first so earlier
+ * cut positions stay valid while later ones are removed. The source
+ * media is never rewritten. Callers commit the result once, which makes
+ * the whole tightening a single step on the shared undo stack.
+ */
+export function tightenClipSilence(
+  objects: CourseObject[],
+  clipId: string,
+  plan: SilenceTighteningPlan,
+  sceneDurationMs: number,
+): CourseObject[] {
+  if (plan.cuts.length === 0) return objects;
+  const target = objects.find(
+    (object): object is AudioObject => object.type === "audio" && object.id === clipId,
+  );
+  if (!target) return objects;
+  const clipStartMs = Math.max(0, Math.round((target.timing?.start ?? 0) * 1000));
+  let next = objects;
+  const descending = [...plan.cuts].sort((a, b) => b.startMs - a.startMs);
+  for (const cut of descending) {
+    next = rippleDeleteAudioRegion(
+      next,
+      clipStartMs + cut.startMs,
+      clipStartMs + cut.endMs,
+      sceneDurationMs,
+    );
+  }
+  return next;
 }
 
 export function rippleDeleteAudioRegion(

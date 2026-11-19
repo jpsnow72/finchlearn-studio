@@ -15,6 +15,7 @@ import { VOICE_CATALOGUE, voiceById } from "@finch-studio/audio";
 import { useStudioStore, useCurrentScene, characterVoiceId } from "../store";
 import { ensureLineAudio, hasCachedLineAudio, lineAudioUrl } from "../narration";
 import { narrationTts } from "../narrationProvider";
+import { VoiceoverPanel } from "./VoiceoverPanel";
 
 interface LineRef {
   character: CharacterObject;
@@ -187,6 +188,7 @@ export function DialoguePanel() {
       <p className="muted small">
         Exports generate any missing narration automatically and mix it into the video.
       </p>
+      <VoiceoverPanel />
     </div>
   );
 }

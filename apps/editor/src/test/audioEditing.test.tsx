@@ -7,6 +7,7 @@ import { projectTimeline } from "@finch-studio/animation";
 import { Timeline } from "../components/Timeline";
 import {
   addAudioVolumeKeyframe,
+  analyzeClipSilence,
   decibelsToVolume,
   getAudioClipMetadata,
   rippleDeleteAudioRegion,
@@ -154,6 +155,90 @@ describe("audio editing", () => {
     expect(project.scenes.map((scene) => scene.durationMs)).toEqual([500, 500]);
     expect(project.scenes.map((scene) => scene.objects)).toEqual([[], []]);
     expect(projectTimeline(project).totalMs).toBe(1000);
+  });
+
+  it("analyzes silences from ingest peaks and reports the time saved", () => {
+    const peaks = [
+      ...Array(10).fill(0.8),
+      ...Array(10).fill(0.02),
+      ...Array(10).fill(0.8),
+      ...Array(6).fill(0.02),
+      ...Array(14).fill(0.8),
+    ];
+    const clip = makeAudio("voice-take", 0, 5, peaks);
+    const analysis = analyzeClipSilence(clip, 5000, {
+      minSilenceMs: 400,
+      keepPauseMs: 200,
+    });
+    expect(analysis.hasPeaks).toBe(true);
+    expect(analysis.plan.gaps).toEqual([
+      { startMs: 1000, endMs: 2000, durationMs: 1000 },
+      { startMs: 3000, endMs: 3600, durationMs: 600 },
+    ]);
+    expect(analysis.plan.totalRemovedMs).toBe(1200);
+    expect(analysis.plan.tightenedDurationMs).toBe(3800);
+
+    const noPeaks = makeAudio("no-peaks", 0, 5, []);
+    const empty = analyzeClipSilence(noPeaks, 5000);
+    expect(empty.hasPeaks).toBe(false);
+    expect(empty.plan.totalRemovedMs).toBe(0);
+  });
+
+  it("tightens silences as one undoable ripple edit with export ready timing", () => {
+    const peaks = [
+      ...Array(10).fill(0.8),
+      ...Array(10).fill(0.02),
+      ...Array(10).fill(0.8),
+      ...Array(6).fill(0.02),
+      ...Array(14).fill(0.8),
+    ];
+    const store = useStudioStore.getState();
+    store.newProject();
+    store.addObject(makeAudio("voice-take", 0, 5, peaks));
+    const afterText: CourseObject = {
+      id: "after-text",
+      type: "text",
+      content: "After",
+      timing: { start: 4.5, duration: 0.5 },
+    };
+    store.addObject(afterText);
+    const before = useStudioStore.getState().project;
+    expect(before.scenes[0].durationMs).toBe(5000);
+
+    store.tightenAudioSilence("voice-take", { minSilenceMs: 400, keepPauseMs: 200 });
+
+    const scene = useStudioStore.getState().project.scenes[0];
+    const audio = scene.objects.filter(
+      (object): object is AudioObject => object.type === "audio",
+    );
+    // Old to new timing: kept speech plus the 200 ms kept pause per gap.
+    expect(audio.map((object) => object.timing?.start)).toEqual([0, 1.2, 2.4]);
+    expect(audio.map((object) => object.timing?.duration)).toEqual([1.2, 1.2, 1.4]);
+    expect(audio.map((object) => getAudioClipMetadata(object).sourceOffsetMs ?? 0)).toEqual([
+      0, 2000, 3600,
+    ]);
+    expect(
+      audio.map((object) => getAudioClipMetadata(object).waveformPeaks?.length),
+    ).toEqual([12, 12, 14]);
+    // Later objects ripple earlier by the full 1200 ms saved.
+    expect(scene.objects.find((object) => object.id === "after-text")?.timing?.start).toBe(3.3);
+    expect(scene.durationMs).toBe(3800);
+
+    // One undo restores the pre tightening project exactly.
+    store.undo();
+    const restored = useStudioStore.getState().project;
+    expect(restored.scenes[0].durationMs).toBe(5000);
+    expect(restored.scenes[0].objects).toEqual(before.scenes[0].objects);
+  });
+
+  it("leaves a clip without peaks untouched and adds no undo step", () => {
+    const store = useStudioStore.getState();
+    store.newProject();
+    store.addObject(makeAudio("no-peaks", 0, 5, []));
+    const pastCount = useStudioStore.getState().pastProjects.length;
+    store.tightenAudioSilence("no-peaks");
+    expect(useStudioStore.getState().pastProjects.length).toBe(pastCount);
+    expect(useStudioStore.getState().project.scenes[0].objects).toHaveLength(1);
   });
 
   it("renders ingest peaks and adds a keyframe when the envelope is clicked", () => {
