@@ -9,6 +9,14 @@ import { useRef, useState } from "react";
 import type { CourseObject } from "@finch-studio/core";
 import type { MediaAsset } from "@finch-studio/media";
 import { useStudioStore, makeStudioImage } from "../store";
+import { RecordPanel } from "./RecordPanel";
+import {
+  bundledBackgroundRef,
+  bundledFamilyName,
+  makeBundledPropObject,
+  searchBundledBackgrounds,
+  searchBundledProps,
+} from "../content/bundledContent";
 
 const SAMPLE_STOCK: MediaAsset[] = [
   { id: "stk-office", source: "finch-stock", kind: "image", name: "Modern office", remoteUrl: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=640&q=60", credit: "Finch Stock", tags: ["office"] },
@@ -71,7 +79,9 @@ export function MediaPanel() {
   const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addObject = useStudioStore((s) => s.addObject);
   const insertObjectGroup = useStudioStore((s) => s.insertObjectGroup);
-  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "groups">("stock");
+  const setSceneBackground = useStudioStore((s) => s.setSceneBackground);
+  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds">("stock");
+  const [bundledSearch, setBundledSearch] = useState("");
   const [mine, setMine] = useState<UserItem[]>(loadUserItems);
   const [groups, setGroups] = useState<SceneGroupPreset[]>(loadSceneGroups);
   const [groupName, setGroupName] = useState("");
@@ -147,8 +157,67 @@ export function MediaPanel() {
         <button type="button" className={tab === "stock" ? "active" : ""} onClick={() => setTab("stock")}>Finch Stock</button>
         <button type="button" className={tab === "unsplash" ? "active" : ""} onClick={() => setTab("unsplash")}>Unsplash</button>
         <button type="button" className={tab === "mine" ? "active" : ""} onClick={() => setTab("mine")}>My media</button>
+        <button type="button" className={tab === "record" ? "active" : ""} onClick={() => setTab("record")}>Record</button>
         <button type="button" className={tab === "groups" ? "active" : ""} onClick={() => setTab("groups")}>Groups</button>
+        <button type="button" className={tab === "props" ? "active" : ""} onClick={() => setTab("props")}>Props</button>
+        <button type="button" className={tab === "backgrounds" ? "active" : ""} onClick={() => setTab("backgrounds")}>Backgrounds</button>
       </div>
+      {tab === "props" || tab === "backgrounds" ? (
+        <div>
+          <input
+            type="search"
+            placeholder={tab === "props" ? "Search bundled props" : "Search bundled backgrounds"}
+            aria-label={tab === "props" ? "Search bundled props" : "Search bundled backgrounds"}
+            value={bundledSearch}
+            onChange={(e) => setBundledSearch(e.target.value)}
+          />
+          {tab === "props" ? (
+            <div className="media-grid">
+              {searchBundledProps(bundledSearch).map((prop) => (
+                <button
+                  key={prop.id}
+                  type="button"
+                  className="media-thumb prop-thumb"
+                  title={`${prop.name}, ${bundledFamilyName(prop.family)}. Original bundled art, cleared for commercial use.`}
+                  onClick={() => {
+                    addObject(makeBundledPropObject(prop));
+                    setNote(`Added "${prop.name}" to the scene.`);
+                  }}
+                >
+                  <img src={prop.dataUri} alt={prop.name} loading="lazy" />
+                  <span>{prop.name} ({prop.family})</span>
+                </button>
+              ))}
+              {searchBundledProps(bundledSearch).length === 0 && (
+                <p className="muted">No bundled props match your search.</p>
+              )}
+            </div>
+          ) : (
+            <div className="media-grid">
+              {searchBundledBackgrounds(bundledSearch).map((bg) => (
+                <button
+                  key={bg.id}
+                  type="button"
+                  className="media-thumb bg-thumb"
+                  title={`${bg.name}, ${bundledFamilyName(bg.family)}. Original bundled art, cleared for commercial use.`}
+                  onClick={() => {
+                    if (!scene) return;
+                    setSceneBackground(scene.id, bundledBackgroundRef(bg));
+                    setNote(`Background set to "${bg.name}".`);
+                  }}
+                >
+                  <img src={bg.dataUri} alt={bg.name} loading="lazy" />
+                  <span>{bg.name} ({bg.family})</span>
+                </button>
+              ))}
+              {searchBundledBackgrounds(bundledSearch).length === 0 && (
+                <p className="muted">No bundled backgrounds match your search.</p>
+              )}
+            </div>
+          )}
+          <p className="muted">Bundled with Studio. Original art, cleared for commercial use.</p>
+        </div>
+      ) : null}
       {tab === "stock" || tab === "unsplash" ? (
         <div className="media-grid">
           {items.map((a) => (
@@ -187,7 +256,9 @@ export function MediaPanel() {
             }}
           />
         </div>
-      ) : (
+      ) : tab === "record" ? (
+        <RecordPanel />
+      ) : tab === "groups" ? (
         <div>
           <div className="lib-row">
             <input
@@ -226,7 +297,7 @@ export function MediaPanel() {
             )}
           </div>
         </div>
-      )}
+      ) : null}
       {note && <p className="muted">{note}</p>}
     </div>
   );

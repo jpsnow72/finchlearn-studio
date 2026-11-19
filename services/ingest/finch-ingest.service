@@ -1,0 +1,18 @@
+[Unit]
+Description=FinchLearn Studio ingest worker (proxy, peaks, thumbnails)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/finch-ingest
+Environment=PORT=8799
+Environment=PUBLIC_URL=https://ingest.finchlearn.com
+Environment=JOB_DIR=/var/lib/finch-ingest/jobs
+EnvironmentFile=/opt/finch-ingest/ingest.env
+ExecStart=/opt/node22/bin/node /opt/finch-ingest/server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

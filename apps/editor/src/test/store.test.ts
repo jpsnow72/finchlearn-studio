@@ -10,6 +10,8 @@ import {
   useStudioStore,
   makeStudioCharacter,
   makeStudioShape,
+  makeStudioVideo,
+  timelineLaneForObject,
 } from "../store.js";
 import { getCaptionCues, getCaptionStyle } from "../captions.js";
 import { formatCaptions } from "../exportPresets.js";
@@ -437,6 +439,29 @@ describe("timeline", () => {
     const scene = useStudioStore.getState().project.scenes[0];
     expect(scene.objects.find((clip) => clip.id === "after-gap")?.timing?.start).toBe(1);
     expect(scene.durationMs).toBe(2000);
+  });
+});
+
+describe("footage factory", () => {
+  it("makes a normal video object whose timeline duration is the clip length", () => {
+    const obj = makeStudioVideo("blob:take-1", "Screen recording", 12_000);
+    expect(obj.type).toBe("video");
+    expect(obj.timing).toEqual({ start: 0, duration: 12 });
+    const short = makeStudioVideo("blob:take-2", "Webcam recording", 200);
+    expect(short.timing?.duration).toBe(0.5);
+    const unknown = makeStudioVideo("blob:take-3", "Video");
+    expect(unknown.timing).toBeUndefined();
+  });
+
+  it("recorded footage trims on the timeline like other video clips", () => {
+    const store = useStudioStore.getState();
+    const obj = makeStudioVideo("blob:take-4", "Screen recording", 8_000);
+    store.addObject(obj);
+    store.updateTimelineClip(obj.id, { durationMs: 3000, trimEdge: "end" });
+    const clip = useStudioStore.getState().project.scenes[0].objects[0];
+    expect(clip.type).toBe("video");
+    expect(clip.timing?.duration).toBe(3);
+    expect(timelineLaneForObject(clip)).toBe("main");
   });
 });
 

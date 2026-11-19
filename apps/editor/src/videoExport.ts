@@ -41,10 +41,21 @@ import {
   type ActionName,
 } from "@finch-studio/characters";
 import { timelineClipRange, timelineLaneForObject, characterVoiceId } from "./store";
-import { getAudioClipMetadata } from "./audioEditing";
+import {
+  audioRoleForObject,
+  getAudioClipMetadata,
+  isDescriptionObject,
+} from "./audioEditing";
+import {
+  encodeWav,
+  planAudioExport,
+  type AudioClip as EngineAudioClip,
+  type DescriptionExportMode,
+} from "@finch-studio/audio";
 import { ensureLineAudio } from "./narration";
 import { getCaptionAt, getCaptionStyle } from "./captions";
 import { getRenderViewport } from "./exportPresets";
+import { bundledBackgroundFromRef } from "./content/bundledContent";
 import type { AudioObject } from "@finch-studio/core";
 
 const FPS = 30;
@@ -197,11 +208,56 @@ function drawBubble(
   ctx.restore();
 }
 
+
+interface ImageSprites {
+  /** Image objects by object id (bundled props and placed media). */
+  objects: Map<string, HTMLImageElement>;
+  /** Bundled background art by scene id (issue #101). */
+  backgrounds: Map<string, HTMLImageElement>;
+}
+
+async function loadSpriteImage(src: string): Promise<HTMLImageElement | null> {
+  const img = new Image();
+  img.src = src;
+  try {
+    await img.decode();
+    return img;
+  } catch {
+    return null;
+  }
+}
+
+/** Preload every image object and bundled scene background for export. */
+async function buildImageSprites(project: VideoProject): Promise<ImageSprites> {
+  const objects = new Map<string, HTMLImageElement>();
+  const backgrounds = new Map<string, HTMLImageElement>();
+  const jobs: Promise<void>[] = [];
+  for (const scene of project.scenes) {
+    const bg = bundledBackgroundFromRef(scene.background);
+    if (bg) {
+      jobs.push(loadSpriteImage(bg.dataUri).then((img) => {
+        if (img) backgrounds.set(scene.id, img);
+      }));
+    }
+    for (const o of scene.objects) {
+      if (o.type !== "image") continue;
+      const resource = (o as { resource?: string }).resource;
+      if (!resource) continue;
+      jobs.push(loadSpriteImage(resource).then((img) => {
+        if (img) objects.set(o.id, img);
+      }));
+    }
+  }
+  await Promise.all(jobs);
+  return { objects, backgrounds };
+}
+
 function drawObject(
   ctx: CanvasRenderingContext2D,
   sprites: Map<string, CharFrames>,
   o: CourseObject,
   tMs: number,
+  images?: Map<string, HTMLImageElement>,
 ): void {
   if (o.visible === false) return;
   switch (o.type) {
@@ -238,6 +294,13 @@ function drawObject(
       }
       if (line) ctx.fillText(line, x, ly, w);
       ctx.restore();
+      break;
+    }
+    case "image": {
+      const img = images?.get(o.id);
+      if (!img) break;
+      const pos = o.position ?? {};
+      ctx.drawImage(img, pos.x ?? 0, pos.y ?? 0, pos.w ?? 200, pos.h ?? 100);
       break;
     }
     case "shape": {
@@ -277,6 +340,13 @@ export interface CaptionOptions {
    * transcodes the WebM to a delivery MP4 with FFmpeg.
    */
   container?: "mp4" | "webm";
+  /**
+   * Audio Description handling (issue #63). "mixed" (the default) mixes
+   * the description track into the export with primary audio ducking
+   * under it. "secondary" keeps the description out of the main mix;
+   * the caller exports it separately with exportDescriptionTrackFiles.
+   */
+  audioDescriptionMode?: DescriptionExportMode;
 }
 
 const MIX_SAMPLE_RATE = 48000;
@@ -286,14 +356,98 @@ function dbToGain(db: number): number {
 }
 
 /**
+ * Every audio clip in the project as an audio engine clip (issue #63):
+ * scene offsets applied, the engine role resolved from the clip's
+ * metadata or timeline lane, and the AD script text carried through.
+ * This is the single list the AD export plan is computed from, so the
+ * plan the UI shows is the plan the render follows.
+ */
+export function projectAudioClips(project: VideoProject): EngineAudioClip[] {
+  const { scenes: tl } = projectTimeline(project);
+  const clips: EngineAudioClip[] = [];
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "audio") continue;
+      const ao = o as AudioObject;
+      if (!ao.resource) continue;
+      const range = timelineClipRange(o, entry.scene.durationMs);
+      const meta = getAudioClipMetadata(ao);
+      clips.push({
+        id: ao.id,
+        assetR2Key: ao.resource,
+        role: audioRoleForObject(ao, timelineLaneForObject(o)),
+        startMs: entry.startMs + range.startMs,
+        durationMs: range.durationMs,
+        sourceInMs: meta.sourceOffsetMs ?? 0,
+        gain: ao.volume ?? 1,
+        fadeInMs: meta.fadeInMs ?? 0,
+        fadeOutMs: meta.fadeOutMs ?? 0,
+        descriptionText: meta.descriptionText,
+      });
+    }
+  }
+  return clips;
+}
+
+/** True when the project carries a dedicated Audio Description track. */
+export function projectHasDescriptionTrack(project: VideoProject): boolean {
+  return planAudioExport(projectAudioClips(project), "secondary").hasDescription;
+}
+
+/** The VTT contents for the description track, or null when there is no AD. */
+export function formatDescriptionTrackVtt(project: VideoProject): string | null {
+  return planAudioExport(projectAudioClips(project), "secondary").descriptionVtt;
+}
+
+/**
  * The project's full audio mix, rendered offline: narration lines
  * (production voices, generated on demand) at their scene offsets,
  * plus audio clips with fades, volume keyframes, and music ducking
  * under speech. Returns null when the project has no audio content.
  * Throws when a narration line cannot be generated, because a silent
  * training video is worse than a clear retry prompt.
+ *
+ * Audio Description (issue #63): in "mixed" mode (default) description
+ * clips are part of the mix and every primary source (narration, music,
+ * sfx) ducks under them. In "secondary" mode description clips are left
+ * out of this mix entirely; exportDescriptionTrackFiles renders them
+ * as their own track.
  */
-export async function buildProjectAudio(project: VideoProject): Promise<AudioBuffer | null> {
+export async function buildProjectAudio(
+  project: VideoProject,
+  audioDescriptionMode: DescriptionExportMode = "mixed",
+): Promise<AudioBuffer | null> {
+  return renderProjectAudio(project, { audioDescriptionMode, onlyDescription: false });
+}
+
+/** The description track on its own, for the secondary export. */
+export async function buildDescriptionAudio(project: VideoProject): Promise<AudioBuffer | null> {
+  return renderProjectAudio(project, { audioDescriptionMode: "mixed", onlyDescription: true });
+}
+
+/**
+ * The secondary AD export files (issue #63): the description track as a
+ * WAV audio file plus its timed VTT track, ready to sit alongside the
+ * main export and the captions file. Null when the project has no AD.
+ */
+export async function exportDescriptionTrackFiles(
+  project: VideoProject,
+): Promise<{ wav: Blob; vtt: string } | null> {
+  const vtt = formatDescriptionTrackVtt(project);
+  if (vtt === null) return null;
+  const buffer = await buildDescriptionAudio(project);
+  if (!buffer) return null;
+  const wavBytes = encodeWav(buffer);
+  return {
+    wav: new Blob([wavBytes.buffer as ArrayBuffer], { type: "audio/wav" }),
+    vtt,
+  };
+}
+
+async function renderProjectAudio(
+  project: VideoProject,
+  mode: { audioDescriptionMode: DescriptionExportMode; onlyDescription: boolean },
+): Promise<AudioBuffer | null> {
   const { scenes: tl, totalMs } = projectTimeline(project);
   if (tl.length === 0) return null;
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil((totalMs / 1000) * MIX_SAMPLE_RATE)), MIX_SAMPLE_RATE);
@@ -312,8 +466,49 @@ export async function buildProjectAudio(project: VideoProject): Promise<AudioBuf
     }
   }
 
+  // Audio Description windows (seconds, project time). Primary audio
+  // ducks under these in mixed mode; in secondary mode and in the
+  // description only render there is nothing to duck.
+  const descriptionWindows: { start: number; end: number }[] = [];
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "audio") continue;
+      if (!isDescriptionObject(o as AudioObject, timelineLaneForObject(o))) continue;
+      const range = timelineClipRange(o, entry.scene.durationMs);
+      descriptionWindows.push({
+        start: (entry.startMs + range.startMs) / 1000,
+        end: (entry.startMs + range.startMs + range.durationMs) / 1000,
+      });
+    }
+  }
+  const adDuckWindows =
+    mode.audioDescriptionMode === "mixed" && !mode.onlyDescription
+      ? descriptionWindows
+      : [];
+
+  const DUCK = 0.3;
+  const DUCK_RAMP = 0.15;
+  const automateDuck = (
+    param: AudioParam,
+    startSec: number,
+    durSec: number,
+    windows: { start: number; end: number }[],
+  ) => {
+    if (windows.length === 0) return;
+    param.setValueAtTime(1, startSec);
+    for (const w of windows) {
+      const ws = Math.max(startSec, w.start - 0.1);
+      const we = Math.min(startSec + durSec, w.end + 0.2);
+      if (we <= ws) continue;
+      param.linearRampToValueAtTime(DUCK, Math.max(startSec, ws - DUCK_RAMP));
+      param.setValueAtTime(DUCK, we);
+      param.linearRampToValueAtTime(1, Math.min(startSec + durSec, we + DUCK_RAMP));
+    }
+  };
+
   // Narration.
   for (const entry of tl) {
+    if (mode.onlyDescription) break;
     for (const o of entry.scene.objects) {
       if (o.type !== "character") continue;
       const voice = characterVoiceId(o);
@@ -324,8 +519,12 @@ export async function buildProjectAudio(project: VideoProject): Promise<AudioBuf
         const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
         const src = ctx.createBufferSource();
         src.buffer = buf;
-        src.connect(ctx.destination);
-        src.start((entry.startMs + line.start) / 1000);
+        const narrationGain = ctx.createGain();
+        src.connect(narrationGain);
+        narrationGain.connect(ctx.destination);
+        const startSec = (entry.startMs + line.start) / 1000;
+        automateDuck(narrationGain.gain, startSec, buf.duration, adDuckWindows);
+        src.start(startSec);
         scheduled++;
       }
     }
@@ -337,6 +536,11 @@ export async function buildProjectAudio(project: VideoProject): Promise<AudioBuf
       if (o.type !== "audio") continue;
       const ao = o as AudioObject;
       if (!ao.resource) continue;
+      const descriptionClip = isDescriptionObject(ao, timelineLaneForObject(o));
+      if (mode.onlyDescription && !descriptionClip) continue;
+      if (!mode.onlyDescription && mode.audioDescriptionMode === "secondary" && descriptionClip) {
+        continue; // Secondary mode: AD exports as its own track, not in this mix.
+      }
       const range = timelineClipRange(o, entry.scene.durationMs);
       const meta = getAudioClipMetadata(ao);
       let buf: AudioBuffer;
@@ -373,20 +577,16 @@ export async function buildProjectAudio(project: VideoProject): Promise<AudioBuf
           keyGain.gain.linearRampToValueAtTime(dbToGain(k.decibels), startSec + k.timeMs / 1000);
         }
       }
-      // Duck music under narration.
-      if (timelineLaneForObject(o) === "music") {
-        const DUCK = 0.3;
-        const RAMP = 0.15;
-        duckGain.gain.setValueAtTime(1, startSec);
-        for (const w of speechWindows) {
-          const ws = Math.max(startSec, w.start - 0.1);
-          const we = Math.min(startSec + durSec, w.end + 0.2);
-          if (we <= ws) continue;
-          duckGain.gain.linearRampToValueAtTime(DUCK, Math.max(startSec, ws - RAMP));
-          duckGain.gain.setValueAtTime(DUCK, we);
-          duckGain.gain.linearRampToValueAtTime(1, Math.min(startSec + durSec, we + RAMP));
-        }
-      }
+      // Ducking: music under narration (standing behaviour), and every
+      // primary clip under the Audio Description track in mixed mode
+      // (issue #63). Description clips themselves never duck.
+      const duckWindows = descriptionClip
+        ? []
+        : [
+            ...adDuckWindows,
+            ...(timelineLaneForObject(o) === "music" ? speechWindows : []),
+          ];
+      automateDuck(duckGain.gain, startSec, durSec, duckWindows);
       src.start(startSec, (meta.sourceOffsetMs ?? 0) / 1000, durSec);
       scheduled++;
     }
@@ -489,6 +689,7 @@ export async function exportVideoProject(
       if (sprite) sprites.set(c.id, sprite);
     }),
   );
+  const imageSprites = await buildImageSprites(project);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -508,7 +709,7 @@ export async function exportVideoProject(
   const pctx = previousCanvas.getContext("2d");
   if (!pctx) throw new Error("Could not create the transition-compositing canvas. Try another browser.");
 
-  const audioBuffer = await buildProjectAudio(project);
+  const audioBuffer = await buildProjectAudio(project, options.audioDescriptionMode ?? "mixed");
   let stream: MediaStream;
   try {
     stream = canvas.captureStream(FPS);
@@ -573,6 +774,8 @@ export async function exportVideoProject(
     target.setTransform(1, 0, 0, 1, 0, 0);
     target.fillStyle = scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
+    const bgImage = imageSprites.backgrounds.get(scene.id);
+    if (bgImage) target.drawImage(bgImage, 0, 0, width, height);
     target.setTransform(
       viewport.scale,
       0,
@@ -584,7 +787,7 @@ export async function exportVideoProject(
     for (const o of scene.objects) {
       const range = timelineClipRange(o, scene.durationMs);
       if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
-        drawObject(target, sprites, o, localT);
+        drawObject(target, sprites, o, localT, imageSprites.objects);
       }
     }
     target.restore();
@@ -687,7 +890,7 @@ export async function exportMp4Project(
     Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSource, AudioBufferSource,
   } = await import("mediabunny");
   const webm = options.container === "webm";
-  const audioBuffer = await buildProjectAudio(project);
+  const audioBuffer = await buildProjectAudio(project, options.audioDescriptionMode ?? "mixed");
   const { width, height } = dimensions;
   const viewport = getRenderViewport(width, height);
   const { scenes: tl, totalMs } = projectTimeline(project);
@@ -707,6 +910,7 @@ export async function exportMp4Project(
       if (frames) sprites.set(c.id, frames);
     }),
   );
+  const imageSprites = await buildImageSprites(project);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -733,13 +937,15 @@ export async function exportMp4Project(
     target.setTransform(1, 0, 0, 1, 0, 0);
     target.fillStyle = scene.background ?? "#ffffff";
     target.fillRect(0, 0, width, height);
+    const bgImage = imageSprites.backgrounds.get(scene.id);
+    if (bgImage) target.drawImage(bgImage, 0, 0, width, height);
     target.setTransform(
       viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY,
     );
     for (const o of scene.objects) {
       const range = timelineClipRange(o, scene.durationMs);
       if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
-        drawObject(target, sprites, o, localT);
+        drawObject(target, sprites, o, localT, imageSprites.objects);
       }
     }
     target.restore();

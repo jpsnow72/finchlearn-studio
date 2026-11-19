@@ -32,6 +32,12 @@ export interface AudioClip {
   fadeOutMs: number;
   /** Manual envelope nodes (click to add on the waveform line). */
   envelope?: VolumeKeyframe[];
+  /**
+   * Audio Description script text for a "description" role clip (issue
+   * #63): the words the description voice speaks, carried so the export
+   * can emit a timed VTT track for the description alongside captions.
+   */
+  descriptionText?: string;
 }
 
 export interface DuckingSettings {
@@ -115,6 +121,19 @@ export function voiceActivityAt(clips: AudioClip[], tMs: number, duck: DuckingSe
   return 0;
 }
 
+/**
+ * Description activity envelope over time (issue #63): 1 while any
+ * Audio Description clip is sounding, with the same attack and release
+ * ramps as voice activity. Primary audio ducks under the description
+ * track so the description can be heard over the programme.
+ */
+export function descriptionActivityAt(clips: AudioClip[], tMs: number, duck: DuckingSettings): number {
+  const adOnly = clips.filter((c) => c.role === "description");
+  if (adOnly.length === 0) return 0;
+  // Reuse the voice envelope math with only description clips visible.
+  return voiceActivityAt(adOnly, tMs, duck);
+}
+
 /** The gain one clip contributes at tMs, after fades, envelope, and ducking. */
 export function clipGainAt(
   clip: AudioClip,
@@ -125,11 +144,19 @@ export function clipGainAt(
   const localMs = tMs - clip.startMs;
   if (localMs < 0 || localMs >= clip.durationMs) return 0;
   let g = clip.gain * fadeGainAt(clip, localMs) * envelopeGainAt(clip, localMs);
+  if (clip.role === "description") return g; // The AD track itself never ducks.
   const duckable = clip.role === "music" || clip.role === "sfx";
   if (duckable) {
+    // Music and sfx sit under voice and under the description track
+    // (voiceActivityAt already counts description clips as triggers).
     const activity = voiceActivityAt(allClips, tMs, duck);
     const duckGain = dbToGain(-duck.duckDb * activity);
     g *= duckGain;
+  } else if (clip.role === "voice") {
+    // Issue #63: primary narration also ducks under the AD track, so a
+    // mixed AD export stays intelligible over the programme audio.
+    const activity = descriptionActivityAt(allClips, tMs, duck);
+    g *= dbToGain(-duck.duckDb * activity);
   }
   return g;
 }

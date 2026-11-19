@@ -14,6 +14,7 @@ import {
   useSelectedObject,
 } from "../store";
 import { StudioObjectRenderer } from "./StudioObjectRenderer";
+import { sceneBackgroundCss } from "../content/bundledContent";
 import {
   mergeAnimatedStyle,
   SceneTimeContext,
@@ -70,7 +71,7 @@ export function StudioCanvas({
     height: SCENE_H,
     transform: `scale(${scale})`,
     transformOrigin: "top left",
-    background: scene.background ?? "#ffffff",
+    background: sceneBackgroundCss(scene.background),
   };
   const animatedStageStyle =
     tMs === null ? stageStyle : mergeAnimatedStyle(stageStyle, timelineStyleFor(scene.animations, tMs));

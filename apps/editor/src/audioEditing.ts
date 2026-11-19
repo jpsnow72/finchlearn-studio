@@ -6,12 +6,39 @@ export interface AudioVolumeKeyframe {
   decibels: number;
 }
 
+/** Track role in the audio engine (@finch-studio/audio AudioRole). */
+export type AudioClipRole = "voice" | "music" | "sfx" | "description";
+
 export interface AudioClipMetadata {
   waveformPeaks?: number[];
   fadeInMs?: number;
   fadeOutMs?: number;
   volumeKeyframes?: AudioVolumeKeyframe[];
   sourceOffsetMs?: number;
+  /**
+   * Dedicated Audio Description role (issue #63). Absent means the clip
+   * follows its timeline lane (music lane = music, anything else voice).
+   */
+  role?: AudioClipRole;
+  /** AD script text for a description clip; becomes its VTT cue text. */
+  descriptionText?: string;
+}
+
+const AUDIO_ROLES: readonly AudioClipRole[] = ["voice", "music", "sfx", "description"];
+
+/** The engine role of an editor audio object: explicit metadata wins,
+ * then the timeline lane convention the export already uses. */
+export function audioRoleForObject(
+  object: AudioObject,
+  lane?: string,
+): AudioClipRole {
+  const role = getAudioClipMetadata(object).role;
+  if (role) return role;
+  return lane === "music" ? "music" : "voice";
+}
+
+export function isDescriptionObject(object: AudioObject, lane?: string): boolean {
+  return audioRoleForObject(object, lane) === "description";
 }
 
 const AUDIO_EXTENSION = "x-finch-studio";
@@ -48,6 +75,10 @@ export function getAudioClipMetadata(object: AudioObject): AudioClipMetadata {
     fadeOutMs: finiteNonNegative(raw.fadeOutMs),
     volumeKeyframes: keyframes,
     sourceOffsetMs: finiteNonNegative(raw.sourceOffsetMs),
+    role: AUDIO_ROLES.includes(raw.role as AudioClipRole)
+      ? (raw.role as AudioClipRole)
+      : undefined,
+    descriptionText: typeof raw.descriptionText === "string" ? raw.descriptionText : undefined,
   };
 }
 

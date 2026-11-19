@@ -85,6 +85,18 @@ export function StudioObjectRenderer({ object }: { object: CourseObject }) {
         />
       );
     }
+    case "video": {
+      const src = (object as { resource?: string }).resource;
+      return src ? (
+        <video
+          src={src}
+          controls
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      ) : (
+        <div className="studio-placeholder">video</div>
+      );
+    }
     case "image": {
       const src = (object as { resource?: string }).resource;
       return src ? (

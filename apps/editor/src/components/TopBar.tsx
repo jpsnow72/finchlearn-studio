@@ -1,10 +1,22 @@
 /** Top bar for project naming, export, and embedded copy-back. */
 import { useState } from "react";
 import { useStudioStore } from "../store";
-import { exportMp4Project, exportVideoProject } from "../videoExport";
+import {
+  exportDescriptionTrackFiles,
+  exportMp4Project,
+  exportVideoProject,
+  projectHasDescriptionTrack,
+} from "../videoExport";
+import { runPreflight } from "../accessibility";
+import type { DescriptionExportMode } from "@finch-studio/audio";
 import { projectTimeline } from "@finch-studio/animation";
 import { uploadExportToCloud } from "../cloud";
 import { requestServerRender, serverRenderConfigured } from "../serverRender";
+import {
+  buildFinishPayload,
+  deliverFinish,
+  type FinishRenderResult,
+} from "../embed";
 import {
   exportFileBaseName,
   EXPORT_PRESETS,
@@ -18,12 +30,14 @@ type CaptionOutput = "burn-in" | "srt" | "vtt" | "none";
 export function TopBar() {
   const project = useStudioStore((s) => s.project);
   const embedObjectId = useStudioStore((s) => s.embedObjectId);
+  const embedContext = useStudioStore((s) => s.embedContext);
   const newProject = useStudioStore((s) => s.newProject);
   const setProjectName = useStudioStore((s) => s.setProjectName);
   const canUndo = useStudioStore((s) => s.pastProjects.length > 0);
   const canRedo = useStudioStore((s) => s.futureProjects.length > 0);
   const undo = useStudioStore((s) => s.undo);
   const redo = useStudioStore((s) => s.redo);
+  const selectScene = useStudioStore((s) => s.selectScene);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -42,6 +56,28 @@ export function TopBar() {
     const mimeType = format === "vtt" ? "text/vtt" : "application/x-subrip";
     downloadBlob(new Blob([content], { type: mimeType }), `${baseName}.${format}`);
     setStatus(`${format.toUpperCase()} captions downloaded.`);
+  };
+
+  const [adMode, setAdMode] = useState<DescriptionExportMode>("mixed");
+
+  // Section 508 pre-flight (issue #63): recomputed each time the export
+  // dialog is shown, so the findings list reflects the current project.
+  const preflight = dialogOpen ? runPreflight(project) : null;
+  const hasDescriptionTrack = projectHasDescriptionTrack(project);
+
+  /** Secondary AD export: the description track as its own audio file
+   * plus its VTT track, downloaded next to the main export. */
+  const downloadDescriptionTrack = async (baseName: string) => {
+    const files = await exportDescriptionTrackFiles(project);
+    if (!files) return;
+    downloadBlob(files.wav, `${baseName}-description.wav`);
+    downloadBlob(
+      new Blob([files.vtt], { type: "text/vtt" }),
+      `${baseName}-description.vtt`,
+    );
+    setStatus(
+      "Description track downloaded too: a separate audio file and its VTT track, next to the main export.",
+    );
   };
 
   const doExport = async () => {
@@ -71,20 +107,21 @@ export function TopBar() {
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
-          { captions: captionOutput === "burn-in" },
+          { captions: captionOutput === "burn-in", audioDescriptionMode: adMode },
         );
         downloadBlob(blob, `${baseName}.mp4`);
         if (captionOutput === "srt" || captionOutput === "vtt") {
           downloadSidecar(captionOutput, baseName);
         }
         await saveToLibrary(blob, baseName, "MP4");
+        if (adMode === "secondary") await downloadDescriptionTrack(baseName);
       } else {
         setStatus("Rendering in real time. Keep this tab in front until it finishes.");
         const blob = await exportVideoProject(
           project,
           (fraction) => setProgress(Math.round(fraction * 100)),
           { width: preset.width!, height: preset.height! },
-          { captions: captionOutput === "burn-in" },
+          { captions: captionOutput === "burn-in", audioDescriptionMode: adMode },
         );
         const extension = blob.type.includes("mp4") ? "mp4" : "webm";
         downloadBlob(blob, `${baseName}.${extension}`);
@@ -92,6 +129,7 @@ export function TopBar() {
           downloadSidecar(captionOutput, baseName);
         }
         await saveToLibrary(blob, baseName, extension.toUpperCase());
+        if (adMode === "secondary") await downloadDescriptionTrack(baseName);
       }
     } catch (err) {
       setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
@@ -173,6 +211,63 @@ export function TopBar() {
     }
   };
 
+  /**
+   * Finish (issue #49): Save and Return to Course. The block binds the
+   * project right away with a renderState "rendering" payload, then the
+   * render runs through the normal export path, saves to the media
+   * library, and a "ready" payload with the asset fields follows. If
+   * the render fails, the rendering payload already returned stands:
+   * the block shows the render state and the project is never lost.
+   */
+  const doFinish = async () => {
+    if (!embedContext) return;
+    setBusy(true);
+    setProgress(0);
+    try {
+      deliverFinish(
+        buildFinishPayload({ context: embedContext, project, renderState: "rendering" }),
+        embedContext,
+      );
+      setStatus("Rendering your video for the course. Keep this tab open until it finishes.");
+      const blob = await exportMp4Project(
+        project,
+        (fraction) => setProgress(Math.round(fraction * 100)),
+        { width: 1280, height: 720 },
+        { captions: true },
+      );
+      const baseName = exportFileBaseName(project.name || "video");
+      downloadBlob(blob, `${baseName}.mp4`);
+      const totalMs = projectTimeline(project).totalMs;
+      const saved = await uploadExportToCloud(blob, baseName, project.id, totalMs);
+      if (!saved) {
+        setStatus(
+          "Your video downloaded, but returning it to the course needs a signed in Studio session. Sign in, then press Save and Return again. Your project is saved in Studio either way.",
+        );
+        return;
+      }
+      recordExport(baseName, saved.downloadUrl);
+      const render: FinishRenderResult = {
+        exportId: saved.id,
+        assetId: saved.id,
+        objectKey: saved.objectKey,
+        mp4Url: saved.downloadUrl,
+        posterUrl: null,
+        durationMs: totalMs,
+      };
+      deliverFinish(
+        buildFinishPayload({ context: embedContext, project, renderState: "ready", render }),
+        embedContext,
+      );
+      setStatus("Video returned to your course. You can close this tab now.");
+    } catch (err) {
+      setStatus(
+        `The render did not finish: ${err instanceof Error ? err.message : String(err)} Your project is saved in Studio and the course block keeps its place. Press Save and Return to try again.`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copyBack = () => {
     if (!embedObjectId) return;
     // Editor reads this key when the user re-opens the embed; the object
@@ -220,19 +315,30 @@ export function TopBar() {
         >
           New
         </button>
-        {embedObjectId && (
+        {embedObjectId && !embedContext && (
           <button type="button" onClick={copyBack}>
             ⤺ Copy back to course
           </button>
         )}
-        <button
-          type="button"
-          className="primary"
-          onClick={() => setDialogOpen(true)}
-          disabled={busy}
-        >
-          Export
-        </button>
+        {embedContext ? (
+          <>
+            <button type="button" onClick={() => setDialogOpen(true)} disabled={busy}>
+              Export
+            </button>
+            <button type="button" className="primary" onClick={doFinish} disabled={busy}>
+              {busy ? "Returning..." : "Save and Return to Course"}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => setDialogOpen(true)}
+            disabled={busy}
+          >
+            Export
+          </button>
+        )}
       </div>
       {status && <div className="topbar-status">{status}</div>}
       {dialogOpen && (
@@ -270,6 +376,62 @@ export function TopBar() {
                   <option value="none">No captions</option>
                 </select>
               </label>
+            )}
+            {hasDescriptionTrack && (
+              <label className="field">
+                Audio description track
+                <select
+                  value={adMode}
+                  onChange={(event) => setAdMode(event.target.value as DescriptionExportMode)}
+                  disabled={busy}
+                >
+                  <option value="mixed">Mixed in, primary audio ducks under it</option>
+                  <option value="secondary">Separate audio file and VTT track</option>
+                </select>
+              </label>
+            )}
+            {preflight && (
+              <div className="preflight">
+                <div className="sub-title">Accessibility pre-flight (Section 508)</div>
+                {preflight.pass ? (
+                  <p className="muted small">
+                    No contrast, font size, or flashing problems found.
+                  </p>
+                ) : (
+                  <>
+                    <p className="muted small">
+                      {preflight.findings.length}{" "}
+                      {preflight.findings.length === 1 ? "finding" : "findings"}.
+                      Exports still work; fix what you can first.
+                    </p>
+                    {preflight.byScene
+                      .filter((sceneReport) => sceneReport.findings.length > 0)
+                      .map((sceneReport) => (
+                        <div key={sceneReport.sceneId} className="preflight-scene">
+                          <div className="preflight-scene-head">
+                            <span>{sceneReport.sceneName}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                selectScene(sceneReport.sceneId);
+                                setDialogOpen(false);
+                              }}
+                            >
+                              Jump to scene
+                            </button>
+                          </div>
+                          <ul className="preflight-list">
+                            {sceneReport.findings.map((finding, i) => (
+                              <li key={`${finding.kind}-${finding.objectId ?? "scene"}-${i}`}>
+                                {finding.message}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </>
+                )}
+              </div>
             )}
             <p className="muted small">
               Video downloads use MP4 when supported by your browser, otherwise WebM.

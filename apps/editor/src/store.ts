@@ -42,6 +42,7 @@ import {
   type CaptionStyle,
 } from "./captions";
 import { characterForLegacyId } from "@finch-studio/characters";
+import type { EmbedContext } from "./embed";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -92,6 +93,30 @@ export function makeStudioImage(resource: string, name = "Image"): CourseObject 
     name,
     position: { x: 320, y: 120, w: 320, h: 200 },
     resource,
+  } as CourseObject;
+}
+
+/**
+ * A footage object (issue #26 recordings land through here, like any
+ * uploaded video): a normal video object on the main timeline lane, so
+ * it trims, splits, and plays back exactly like other footage. The clip
+ * duration becomes its timeline duration when known.
+ */
+export function makeStudioVideo(
+  resource: string,
+  name = "Video",
+  durationMs?: number,
+): CourseObject {
+  return {
+    id: newObjId("vd"),
+    type: "video",
+    name,
+    position: { x: 80, y: 60, w: 640, h: 360 },
+    resource,
+    controls: true,
+    ...(durationMs && durationMs > 0
+      ? { timing: { start: 0, duration: Math.max(0.5, durationMs / 1000) } }
+      : {}),
   } as CourseObject;
 }
 
@@ -213,6 +238,9 @@ interface VideoStudioState {
   timelineSnapEnabled: boolean;
   tts: TtsSettings;
   embedObjectId: string | null;
+  /** Verified FinchLearn handoff context (issue #49); null standalone. */
+  embedContext: EmbedContext | null;
+  setEmbedContext: (context: EmbedContext | null) => void;
 
   // project
   newProject: () => void;
@@ -228,6 +256,7 @@ interface VideoStudioState {
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
+  setSceneBackground: (id: string, background: string | undefined) => void;
   setScenePresets: (id: string, presets: AnimationPreset[]) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
   moveSceneTo: (id: string, index: number) => void;
@@ -481,6 +510,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     timelineSnapEnabled: true,
     tts: { voiceId: undefined, rate: 1, pitch: 1 },
     embedObjectId,
+    embedContext: null,
+    setEmbedContext: (context) =>
+      set({
+        embedContext: context,
+        // The badge and legacy copy-back key off the block id too.
+        embedObjectId: context ? context.blockId : get().embedObjectId,
+      }),
 
     loadProject: (p) => {
       const project = deriveProjectDurations(p as CaptionProject);
@@ -631,6 +667,15 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit(patchScene(get().project, id, (s) => ({ ...s, name }))),
     setSceneTransition: (id, t) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, transition: t }))),
+    setSceneBackground: (id, background) =>
+      commit(
+        patchScene(get().project, id, (s) => {
+          const next = { ...s };
+          if (background === undefined) delete next.background;
+          else next.background = background;
+          return next;
+        }),
+      ),
     setScenePresets: (id, presets) =>
       commit(
         patchScene(get().project, id, (s) => ({
