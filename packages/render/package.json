@@ -1,0 +1,23 @@
+{
+  "name": "@finch-studio/render",
+  "version": "0.1.0",
+  "description": "Render planning, path choice, and frame parity core (issues #8 and #48)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@finch-studio/schema": "0.1.0"
+  }
+}

@@ -91,3 +91,37 @@ describe("OCF mapping", () => {
     expect(back.scenes[0].elements.some((e) => e.kind === "chart")).toBe(false);
   });
 });
+
+import { parseScript } from "./scriptImport.js";
+import { duplicateProjectAs, restoreSnapshot, safeZones, takeSnapshot } from "./reframe.js";
+
+describe("script import (#55)", () => {
+  it("parses scenes, speakers, and narration deterministically", () => {
+    const script = "[Scene: Intro]\nNARRATOR: Welcome to the course.\nThis line is plain narration.\n[Scene: Demo]\nSAM: Watch this step carefully now.";
+    const p = parseScript(script, "Parsed");
+    expect(p.scenes).toHaveLength(2);
+    expect(p.scenes[0].name).toBe("Intro");
+    expect(p.scenes[0].dialogue).toHaveLength(2);
+    expect(p.scenes[1].dialogue[0].text).toContain("Watch this step");
+    expect(p.scenes[0].durationMs).toBeGreaterThanOrEqual(2000);
+    expect(parseScript(script, "Parsed").scenes.map((s) => s.dialogue.length)).toEqual([2, 1]);
+  });
+});
+
+describe("snapshots and reframe (#62)", () => {
+  it("snapshots round trip", () => {
+    const p = sampleProject();
+    const snap = takeSnapshot(p, "before edits");
+    expect(restoreSnapshot(snap)).toEqual(p);
+  });
+  it("duplicating to 9:16 keeps elements inside the frame", () => {
+    const p = sampleProject();
+    const v = duplicateProjectAs(p, "9:16");
+    expect(v.aspect).toBe("9:16");
+    expect(v.id).not.toBe(p.id);
+    for (const el of v.scenes[0].elements) {
+      if (el.x !== undefined && el.w !== undefined) expect(el.x + el.w).toBeLessThanOrEqual(1080);
+    }
+    expect(safeZones("9:16").socialSafe.w).toBeLessThan(1);
+  });
+});
