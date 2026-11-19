@@ -19,6 +19,7 @@ export {
   samplePath,
   sampleTrack,
   sampleTimeline,
+  sampleAnimations,
   hasTimeline,
   timelineEndMs,
   expandAnimationPreset,

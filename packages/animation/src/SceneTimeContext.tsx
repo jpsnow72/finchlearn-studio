@@ -2,8 +2,8 @@
  * Scene-time React context (Vyond-lite MVP).
  *
  * PlayerPage provides the current animation clock time; leaf object wrappers
- * consume it via `useAnimatedObjectStyle` to merge timeline-driven transform
- * / opacity deltas into their inline styles. `null` (default) = no timeline
+ * consume it via `useAnimatedObjectStyle` to merge engine-generated preset
+ * and timeline deltas into their inline styles. `null` (default) disables
  * animation — existing render paths are untouched.
  */
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
@@ -17,7 +17,7 @@ export const SceneTimeContext = createContext<number | null>(null);
 /**
  * Compute the animation style delta for one object at the current scene
  * time, merged over `base`. Returns `base` unchanged when animation is off
- * or the object has no timeline tracks (cheap no-op for the common case).
+ * or the object has no effects or timeline tracks.
  *
  * Must be called unconditionally at the top of a component (before any
  * early returns) — it reads context.
@@ -28,9 +28,9 @@ export function useAnimatedObjectStyle(
 ): CSSProperties | undefined {
   const tMs = useContext(SceneTimeContext);
   if (tMs === null) return base;
-  const timeline = object.animations?.timeline;
-  if (!timeline || timeline.length === 0) return base;
-  const delta = timelineStyleFor(timeline, tMs);
+  const animations = object.animations;
+  if (!animations?.presets?.length && !animations?.timeline?.length) return base;
+  const delta = timelineStyleFor(animations, tMs);
   return mergeAnimatedStyle(base, delta);
 }
 
@@ -49,7 +49,7 @@ export function WithObjectAnimation({
 }): ReactNode {
   const tMs = useContext(SceneTimeContext);
   if (tMs === null) return children(base);
-  const timeline = object.animations?.timeline;
-  if (!timeline || timeline.length === 0) return children(base);
-  return children(mergeAnimatedStyle(base, timelineStyleFor(timeline, tMs)));
+  const animations = object.animations;
+  if (!animations?.presets?.length && !animations?.timeline?.length) return children(base);
+  return children(mergeAnimatedStyle(base, timelineStyleFor(animations, tMs)));
 }

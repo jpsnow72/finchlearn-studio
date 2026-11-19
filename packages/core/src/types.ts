@@ -418,6 +418,8 @@ export type ExitAnimation =
 export interface Animations {
   entrance?: EntranceAnimation;
   exit?: ExitAnimation;
+  /** One-click effects expanded by the timeline animation engine. */
+  presets?: AnimationPreset[];
   /**
    * Keyframe-lite timeline tracks (SPEC §7.7, rev 24). Each track animates
    * one property over a time window. `x`/`y` are pixel *offsets* applied on
@@ -433,12 +435,28 @@ export interface Animations {
 /**
  * Properties animatable on the timeline (SPEC §7.7, rev 24).
  */
-export type AnimatableProperty = "x" | "y" | "opacity" | "scale" | "rotation";
+export type AnimatableProperty =
+  | "x"
+  | "y"
+  | "opacity"
+  | "scale"
+  | "rotation"
+  | "wipeLeft"
+  | "wipeRight"
+  | "wipeUp"
+  | "wipeDown";
 
 /**
  * Easing functions for timeline tracks (SPEC §7.7, rev 24).
  */
-export type EasingName = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bounce";
+export type EasingName =
+  | "linear"
+  | "easeIn"
+  | "easeOut"
+  | "easeInOut"
+  | "bounce"
+  | "pulse"
+  | "shake";
 
 /**
  * One keyframe-lite animation track on an object (SPEC §7.7, rev 24).
@@ -468,7 +486,34 @@ export type AnimationPresetName =
   | "slideInUp"
   | "slideInDown"
   | "zoomIn"
-  | "bounce";
+  | "bounce"
+  | "slideOutLeft"
+  | "slideOutRight"
+  | "slideOutUp"
+  | "slideOutDown"
+  | "popIn"
+  | "popOut"
+  | "zoomOut"
+  | "wipeInLeft"
+  | "wipeInRight"
+  | "wipeInUp"
+  | "wipeInDown"
+  | "wipeOutLeft"
+  | "wipeOutRight"
+  | "wipeOutUp"
+  | "wipeOutDown"
+  | "emphasisPulse"
+  | "emphasisShake"
+  | "emphasisSpin";
+
+/** A named engine preset with its authored delay and duration. */
+export interface AnimationPreset {
+  name: AnimationPresetName;
+  /** Delay in ms from the scene start. */
+  start?: number;
+  /** Duration in ms. Defaults to 600. */
+  duration?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Animated characters (SPEC §7.8, rev 25)
@@ -597,6 +642,8 @@ export interface VideoScene {
   transition?: VideoSceneTransition;
   /** Transition duration in ms. Defaults to 400. */
   transitionMs?: number;
+  /** Scene-level effects use the same timeline engine as object effects. */
+  animations?: Animations;
   background?: string;
   objects: CourseObject[];
 }

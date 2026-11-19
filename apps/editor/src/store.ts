@@ -13,6 +13,7 @@ import type {
   CharacterObject,
   CharacterSpeech,
   CharacterWaypoint,
+  AnimationPreset,
   CourseObject,
   VideoProject,
   VideoScene,
@@ -118,6 +119,7 @@ interface VideoStudioState {
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
+  setScenePresets: (id: string, presets: AnimationPreset[]) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
   moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
@@ -125,6 +127,7 @@ interface VideoStudioState {
   selectObject: (id: string | null) => void;
   addObject: (obj: CourseObject) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
+  setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
   // characters
@@ -266,6 +269,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit(patchScene(get().project, id, (s) => ({ ...s, name }))),
     setSceneTransition: (id, t) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, transition: t }))),
+    setScenePresets: (id, presets) =>
+      commit(
+        patchScene(get().project, id, (s) => ({
+          ...s,
+          animations: { ...s.animations, presets: presets.map((preset) => ({ ...preset })) },
+        })),
+      ),
     moveScene: (id, dir) => {
       const i = get().project.scenes.findIndex((scene) => scene.id === id);
       get().moveSceneTo(id, i + dir);
@@ -296,6 +306,18 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project, currentSceneId } = get();
       commit(
         patchObject(project, currentSceneId, id, (o) => ({ ...o, ...patch }) as CourseObject),
+      );
+    },
+    setObjectPresets: (id, presets) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (o) => ({
+          ...o,
+          animations: {
+            ...o.animations,
+            presets: presets.map((preset) => ({ ...preset })),
+          },
+        }) as CourseObject),
       );
     },
     removeObject: (id) => {
