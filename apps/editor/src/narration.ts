@@ -19,6 +19,14 @@ import { supabase, supabaseEnabled } from "./supabase";
 
 export const FINCH_NARRATION_URL = "https://finch-narration.jpsnow72.workers.dev";
 
+/**
+ * Shared app key the narration Worker requires (x-narration-app-key) —
+ * the same client-shipped key the FinchLearn app sends from its own
+ * VITE_NARRATION_APP_KEY. It gates casual abuse alongside the Worker's
+ * origin allowlist; it is not a private credential.
+ */
+const NARRATION_APP_KEY = (import.meta.env.VITE_NARRATION_APP_KEY as string | undefined) ?? "";
+
 export interface LineAudio {
   blob: Blob;
   durationSec: number;
@@ -108,7 +116,10 @@ async function generateKokoro(text: string, voiceId: string): Promise<LineAudio>
   try {
     res = await fetch(`${FINCH_NARRATION_URL}/generate`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(NARRATION_APP_KEY ? { "x-narration-app-key": NARRATION_APP_KEY } : {}),
+      },
       body: JSON.stringify({ text, voiceId }),
     });
   } catch {
