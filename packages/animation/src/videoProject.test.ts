@@ -1,6 +1,5 @@
 /**
- * Video project timing (SPEC §7.9): cut/fade transitions, scene lookup,
- * crossfade alpha, and structural validation.
+ * Video project timing (SPEC §7.9): scene transitions, lookup, and validation.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +7,7 @@ import {
   makeVideoScene,
   projectTimeline,
   projectDurationMs,
+  sceneContentDurationMs,
   sceneAt,
   transitionAlpha,
   validateVideoProject,
@@ -31,6 +31,12 @@ describe("projectTimeline", () => {
     expect(totalMs).toBe(10000);
   });
 
+  it("treats a missing transition as a cut", () => {
+    const project = twoSceneProject("cut");
+    delete project.scenes[1].transition;
+    expect(projectTimeline(project).totalMs).toBe(10000);
+  });
+
   it("overlaps scenes with fade transitions", () => {
     const { scenes, totalMs } = projectTimeline(twoSceneProject("fade"));
     expect(scenes[0].startMs).toBe(0);
@@ -40,9 +46,44 @@ describe("projectTimeline", () => {
     expect(totalMs).toBe(9500);
   });
 
+  it("overlaps scenes for every non-cut transition", () => {
+    for (const transition of ["fade", "slide", "wipe", "zoom", "push"] as const) {
+      const project = twoSceneProject("cut");
+      project.scenes[1].transition = transition;
+      expect(projectTimeline(project).totalMs).toBe(9500);
+    }
+  });
+
   it("projectDurationMs matches the timeline total", () => {
     const p = twoSceneProject("fade");
     expect(projectDurationMs(p)).toBe(projectTimeline(p).totalMs);
+  });
+
+});
+
+describe("sceneContentDurationMs", () => {
+  it("uses timed content with a half-second minimum and defaults untimed scenes to five seconds", () => {
+    const scene = makeVideoScene();
+    expect(sceneContentDurationMs(scene)).toBe(5000);
+    scene.objects.push({
+      id: "text",
+      type: "text",
+      name: "Text",
+      content: "Timed",
+      position: { x: 0, y: 0, w: 100, h: 40 },
+      timing: { start: 2, duration: 4 },
+    });
+    expect(sceneContentDurationMs(scene)).toBe(6000);
+    scene.objects[0].timing = { start: 0, duration: 2 };
+    expect(sceneContentDurationMs(scene)).toBe(2000);
+    scene.objects[0].timing = { start: 0, duration: 0.1 };
+    expect(sceneContentDurationMs(scene)).toBe(500);
+    delete scene.objects[0].timing;
+    expect(sceneContentDurationMs(scene)).toBe(5000);
+    scene.durationMs = 1000;
+    expect(sceneContentDurationMs(scene)).toBe(1000);
+    scene.durationMs = 0;
+    expect(sceneContentDurationMs(scene)).toBe(500);
   });
 });
 

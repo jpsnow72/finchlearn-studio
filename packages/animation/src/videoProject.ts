@@ -7,6 +7,8 @@
  */
 import type { CourseObject, VideoProject, VideoScene } from "@finch-studio/core";
 
+export const DEFAULT_SCENE_DURATION_MS = 5000;
+
 let counter = 0;
 /** Collision-resistant id for studio-created entities. */
 export function newVideoId(prefix: string): string {
@@ -20,11 +22,29 @@ export function makeVideoScene(name?: string): VideoScene {
   return {
     id: newVideoId("scene"),
     name: n,
-    durationMs: 5000,
+    durationMs: DEFAULT_SCENE_DURATION_MS,
     transition: "cut",
     transitionMs: 400,
     objects: [],
   };
+}
+
+/** Scene duration from timed content; untimed scenes retain edits up to the five-second default. */
+export function sceneContentDurationMs(scene: VideoScene): number {
+  const endTimes = scene.objects.flatMap((object) => {
+    const ends: number[] = [];
+    if (object.timing) {
+      ends.push(((object.timing.start ?? 0) + (object.timing.duration ?? 0)) * 1000);
+    }
+    if (object.type === "character") {
+      ends.push(...(object.speech ?? []).map((line) => line.start + line.duration));
+      ends.push(...(object.path ?? []).map((waypoint) => waypoint.t));
+    }
+    return ends.filter(Number.isFinite);
+  });
+  return endTimes.length > 0
+    ? Math.max(500, ...endTimes)
+    : Math.min(DEFAULT_SCENE_DURATION_MS, Math.max(500, scene.durationMs));
 }
 
 export function makeVideoProject(name = "Untitled video"): VideoProject {
@@ -44,8 +64,8 @@ export interface SceneTiming {
 }
 
 /**
- * Project timeline with transitions. A "fade" transition overlaps the tail
- * of the previous scene by `transitionMs` (crossfade); "cut" abuts.
+ * Project timeline with transitions. Non-cut transitions overlap the tail of
+ * the previous scene by `transitionMs`; cut transitions abut.
  */
 export function projectTimeline(project: VideoProject): {
   scenes: SceneTiming[];
@@ -55,7 +75,9 @@ export function projectTimeline(project: VideoProject): {
   let cursor = 0;
   project.scenes.forEach((scene, i) => {
     const overlap =
-      i > 0 && scene.transition === "fade" ? (scene.transitionMs ?? 400) : 0;
+      i > 0 && scene.transition && scene.transition !== "cut"
+        ? (scene.transitionMs ?? 400)
+        : 0;
     const startMs = Math.max(0, cursor - overlap);
     const endMs = startMs + Math.max(1, scene.durationMs);
     out.push({ scene, startMs, endMs });
@@ -84,7 +106,7 @@ export function sceneAt(
   return null;
 }
 
-/** Crossfade alpha for the incoming scene at project time `tMs` (1 = fully in). */
+/** Progress through the incoming scene's transition at project time `tMs`. */
 export function transitionAlpha(
   project: VideoProject,
   tMs: number,
@@ -102,7 +124,10 @@ export function transitionAlpha(
   }
   if (idx <= 0) return 1;
   const timing = scenes[idx];
-  const overlap = timing.scene.transition === "fade" ? (timing.scene.transitionMs ?? 400) : 0;
+  const overlap =
+    timing.scene.transition && timing.scene.transition !== "cut"
+      ? (timing.scene.transitionMs ?? 400)
+      : 0;
   if (overlap <= 0) return 1;
   const into = tMs - timing.startMs;
   return Math.min(1, Math.max(0, into / overlap));

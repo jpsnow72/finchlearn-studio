@@ -70,9 +70,9 @@ export function App() {
   return (
     <div className="studio">
       <TopBar />
+      <SceneManager />
       <div className="studio-main">
         <aside className="studio-left">
-          <SceneManager />
           <CharacterPicker />
           <div className="panel">
             <div className="panel-title">Add to scene</div>
@@ -80,7 +80,7 @@ export function App() {
           </div>
         </aside>
         <main className="studio-center">
-          <StudioCanvas tMs={clock.playing ? clock.tMs : null} pathEdit={pathEdit} />
+          <StudioCanvas tMs={clock.tMs} pathEdit={pathEdit} />
           <Timeline
             playing={clock.playing}
             setPlaying={(v) => (v ? clock.play() : clock.pause())}

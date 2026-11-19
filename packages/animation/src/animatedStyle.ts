@@ -7,17 +7,25 @@
  * fighting it. `opacity` rides alongside any existing opacity.
  */
 import type { CSSProperties } from "react";
-import { sampleTimeline, type SampledValues } from "@finch-studio/core";
+import {
+  sampleAnimations,
+  sampleTimeline,
+  type Animations,
+  type AnimationTrack,
+  type SampledValues,
+} from "@finch-studio/core";
 
 /**
  * Sample an object's timeline at `tMs` and return the inline style delta.
  * Returns an empty object when there is nothing to animate (cheap no-op).
  */
 export function timelineStyleFor(
-  timeline: Parameters<typeof sampleTimeline>[0],
+  timeline: AnimationTrack[] | Pick<Animations, "presets" | "timeline"> | undefined,
   tMs: number,
 ): CSSProperties {
-  const v: SampledValues = sampleTimeline(timeline, tMs);
+  const v: SampledValues = Array.isArray(timeline)
+    ? sampleTimeline(timeline, tMs)
+    : sampleAnimations(timeline, tMs);
   return sampledToStyle(v);
 }
 
@@ -33,6 +41,15 @@ export function sampledToStyle(v: SampledValues): CSSProperties {
   const style: CSSProperties = {};
   if (transforms.length > 0) style.transform = transforms.join(" ");
   if (v.opacity !== undefined) style.opacity = v.opacity;
+  if (v.wipeLeft !== undefined) {
+    style.clipPath = `inset(0 ${(1 - v.wipeLeft) * 100}% 0 0)`;
+  } else if (v.wipeRight !== undefined) {
+    style.clipPath = `inset(0 0 0 ${(1 - v.wipeRight) * 100}%)`;
+  } else if (v.wipeUp !== undefined) {
+    style.clipPath = `inset(${(1 - v.wipeUp) * 100}% 0 0 0)`;
+  } else if (v.wipeDown !== undefined) {
+    style.clipPath = `inset(0 0 ${(1 - v.wipeDown) * 100}% 0)`;
+  }
   return style;
 }
 
@@ -45,7 +62,7 @@ export function mergeAnimatedStyle(
   base: CSSProperties | undefined,
   anim: CSSProperties,
 ): CSSProperties | undefined {
-  if (!anim.transform && anim.opacity === undefined) return base;
+  if (!anim.transform && anim.opacity === undefined && anim.clipPath === undefined) return base;
   const out: CSSProperties = { ...(base ?? {}) };
   if (anim.transform) {
     out.transform = base?.transform
@@ -58,5 +75,6 @@ export function mergeAnimatedStyle(
     out.opacity =
       baseOp !== undefined ? baseOp * anim.opacity : anim.opacity;
   }
+  if (typeof anim.clipPath === "string") out.clipPath = anim.clipPath;
   return out;
 }

@@ -155,9 +155,16 @@ input[type="range"] { accent-color: var(--accent); }
 .char-card-label { font-size: 11px; color: var(--muted); }
 
 /* Scene manager */
-.scene-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.scene-item { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.scene-manager { margin: 10px 12px 0; padding: 8px 12px; }
+.scene-strip-header { display: flex; align-items: center; gap: 12px; }
+.scene-strip-header .panel-title { margin: 0; }
+.scene-total { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.scene-strip-header .add-scene { width: auto; margin-left: auto; }
+.scene-list { list-style: none; margin: 8px 0 0; padding: 0 0 4px; display: flex; align-items: stretch; gap: 8px; overflow-x: auto; }
+.scene-item { flex: 0 0 190px; border: 1px solid var(--line); border-radius: 8px; }
+.scene-item.dragging { opacity: 0.55; }
 .scene-item.active { border-color: var(--accent2); }
+.scene-card { min-width: 0; }
 .scene-select {
   width: 100%; display: flex; align-items: center; gap: 8px;
   background: transparent; border: none; padding: 8px 10px; text-align: left;
@@ -167,13 +174,15 @@ input[type="range"] { accent-color: var(--accent); }
   background: var(--bg3); display: flex; align-items: center; justify-content: center;
   font-size: 12px; flex-shrink: 0;
 }
-.scene-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-name > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-name-input { width: 100%; padding: 2px 4px; }
 .scene-meta { font-size: 12px; color: var(--muted); }
-.scene-detail { padding: 8px 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
-.scene-actions { display: flex; gap: 6px; }
-.add-scene { width: 100%; }
-.field-inline { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.field-inline input, .field-inline select { width: 90px; }
+.scene-actions { display: flex; gap: 4px; padding: 0 8px 8px; }
+.scene-actions button { padding: 3px 8px; }
+.scene-seam { flex: 0 0 112px; display: flex; align-items: center; }
+.scene-seam label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.scene-seam select { width: 88px; padding: 4px; }
 
 /* Props */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 13px; }
@@ -182,6 +191,11 @@ input[type="range"] { accent-color: var(--accent); }
 .seg { display: flex; gap: 4px; }
 .seg button.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .color-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.effect-preset-select { flex: 1; min-width: 120px; }
+.effect-item { border-top: 1px solid var(--line); padding: 8px 0; }
+.effect-heading, .effect-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.effect-options { margin-top: 8px; flex-wrap: wrap; }
+.effect-heading button { padding: 3px 8px; }
 .wp-row {
   display: grid; grid-template-columns: 24px 1fr 1fr 1fr auto; gap: 4px; align-items: end;
   font-size: 12px; margin-bottom: 6px; padding: 6px;
@@ -216,6 +230,59 @@ input[type="range"] { accent-color: var(--accent); }
 .timeline-controls input[type="range"] { flex: 1; }
 .tl-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .export-plan { font-size: 12px; }
+.timeline-audio { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.timeline-region-row, .timeline-audio-track {
+  display: grid; grid-template-columns: minmax(72px, 120px) minmax(0, 1fr);
+  gap: 8px; align-items: center; margin-bottom: 8px;
+}
+.audio-track-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--muted);
+}
+.timeline-region-ruler, .timeline-audio-lane {
+  position: relative; min-width: 0; height: 46px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+}
+.timeline-region-ruler { height: 20px; cursor: crosshair; touch-action: none; }
+.audio-region-selection {
+  position: absolute; inset-block: 0; background: var(--accent2);
+  opacity: 0.55; pointer-events: none;
+}
+.audio-clip {
+  position: absolute; inset-block: 0; min-width: 1px; overflow: hidden;
+  border: 1px solid var(--accent2); border-radius: 5px;
+  background: var(--bg3); color: var(--accent);
+}
+.audio-waveform, .audio-volume-envelope {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+}
+.audio-waveform { stroke: currentColor; stroke-width: 0.8; opacity: 0.75; pointer-events: none; }
+.audio-waveform-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 10px; white-space: nowrap; pointer-events: none;
+}
+.audio-volume-envelope { overflow: visible; cursor: crosshair; touch-action: manipulation; }
+.audio-volume-envelope polyline {
+  fill: none; stroke: var(--text); stroke-width: 1.4; vector-effect: non-scaling-stroke;
+}
+.audio-volume-envelope circle { fill: var(--accent); stroke: var(--bg); stroke-width: 0.5; }
+.audio-volume-envelope:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.audio-fade-handle {
+  position: absolute; top: -1px; z-index: 1; width: 12px; height: 12px;
+  padding: 0; border-radius: 50%; touch-action: none;
+  transform: translateX(50%);
+}
+.audio-fade-handle.fadeOutMs { transform: translateX(-50%); }
+.audio-clip-controls {
+  grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: end;
+}
+.audio-clip-controls label {
+  display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted);
+}
+.audio-clip-controls input { width: 84px; padding: 3px 5px; }
+.audio-region-actions {
+  display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .char-thumb *, .studio-stage * { animation: none !important; }

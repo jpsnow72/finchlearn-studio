@@ -7,6 +7,8 @@
  * project's own entitlements, the FinchLearn media identity rule).
  */
 
+import type { AnimationPreset } from "@finch-studio/core";
+
 export const STUDIO_SCHEMA_VERSION = 1 as const;
 
 export interface AssetRef {
@@ -37,7 +39,7 @@ export interface DialogueLine {
   wordTimings?: WordTiming[];
 }
 
-export type TransitionKind = "cut" | "fade" | "slide" | "wipe";
+export type TransitionKind = "cut" | "fade" | "slide" | "wipe" | "zoom" | "push";
 
 export interface CueMarker {
   atMs: number;
@@ -57,6 +59,7 @@ interface ElementBase {
   w?: number;
   h?: number;
   opacity?: number;
+  effects?: AnimationPreset[];
 }
 
 export interface FootageElement extends ElementBase {
@@ -123,6 +126,7 @@ export interface StudioScene {
   durationMs: number;
   transition: TransitionKind;
   transitionMs?: number;
+  effects?: AnimationPreset[];
   background?: AssetRef | { color: string };
   elements: SceneElement[];
   dialogue: DialogueLine[];

@@ -43,14 +43,79 @@ describe("scenes", () => {
     expect(after[1]).toBe(before[0]);
   });
 
-  it("renames and resizes a scene", () => {
+  it("renames a scene", () => {
     const s = useStudioStore.getState();
     const id = s.project.scenes[0].id;
     s.renameScene(id, "Intro");
-    s.setSceneDuration(id, 8000);
     const scene = useStudioStore.getState().project.scenes[0];
     expect(scene.name).toBe("Intro");
-    expect(scene.durationMs).toBe(8000);
+    expect(scene.durationMs).toBe(5000);
+  });
+
+  it("derives scene duration from the longest timed content", () => {
+    const s = useStudioStore.getState();
+    const character = makeStudioCharacter("student");
+    s.addObject(character);
+    s.addSpeech(character.id, {
+      id: "line-1",
+      text: "Hello",
+      start: 6000,
+      duration: 2500,
+    });
+    s.addWaypoint(character.id, { x: 400, y: 200, t: 12000 });
+    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(12000);
+
+    s.removeWaypoint(character.id, 0);
+    expect(useStudioStore.getState().project.scenes[0].durationMs).toBe(8500);
+  });
+
+  it("duplicates a scene with independent object and speech ids", () => {
+    const s = useStudioStore.getState();
+    const originalId = s.project.scenes[0].id;
+    const character = makeStudioCharacter("student");
+    s.addObject(character);
+    s.addSpeech(character.id, { id: "line-1", text: "Hello", start: 0, duration: 1000 });
+
+    s.duplicateScene(originalId);
+    const state = useStudioStore.getState();
+    const duplicate = state.project.scenes[1];
+    expect(state.currentSceneId).toBe(duplicate.id);
+    expect(duplicate.name).toBe("Scene 1 copy");
+    expect(duplicate.id).not.toBe(originalId);
+    expect(duplicate.objects[0].id).not.toBe(character.id);
+    if (duplicate.objects[0].type === "character") {
+      expect(duplicate.objects[0].speech?.[0].id).not.toBe("line-1");
+    }
+
+    state.setCharColors(duplicate.objects[0].id, { shirt: "#ff0000" });
+    const original = useStudioStore.getState().project.scenes[0].objects[0];
+    expect(original.type === "character" && original.colors?.shirt).toBeUndefined();
+  });
+
+  it("reorders to a drop target and applies the seam transition", () => {
+    const s = useStudioStore.getState();
+    s.addScene();
+    const ids = useStudioStore.getState().project.scenes.map((scene) => scene.id);
+    s.addScene();
+    const newSceneId = useStudioStore.getState().project.scenes[2].id;
+    s.moveSceneTo(ids[0], 2);
+    s.setSceneTransition(ids[0], "wipe");
+    const project = useStudioStore.getState().project;
+    expect(project.scenes.map((scene) => scene.id)).toEqual([
+      ids[1],
+      newSceneId,
+      ids[0],
+    ]);
+    expect(project.scenes[2].transition).toBe("wipe");
+    expect(project.scenes[2].durationMs).toBe(5000);
+  });
+
+  it("stores scene effects", () => {
+    const s = useStudioStore.getState();
+    const id = s.project.scenes[0].id;
+    const effects = [{ name: "fadeIn" as const, start: 150, duration: 700 }];
+    s.setScenePresets(id, effects);
+    expect(useStudioStore.getState().project.scenes[0].animations?.presets).toEqual(effects);
   });
 });
 
@@ -78,6 +143,20 @@ describe("objects", () => {
       expect(obj.facing).toBe("left");
       expect(obj.colors?.shirt).toBe("#ff0000");
     }
+  });
+
+  it("stores effects on the selected object without losing other animation data", () => {
+    const s = useStudioStore.getState();
+    const char = makeStudioCharacter("student");
+    s.addObject(char);
+    s.updateObject(char.id, {
+      animations: { timeline: [{ property: "x", from: 0, to: 10 }] },
+    });
+    const effects = [{ name: "wipeInLeft" as const, start: 100, duration: 500 }];
+    useStudioStore.getState().setObjectPresets(char.id, effects);
+    const object = useStudioStore.getState().project.scenes[0].objects[0];
+    expect(object.animations?.presets).toEqual(effects);
+    expect(object.animations?.timeline).toHaveLength(1);
   });
 
   it("manages waypoints", () => {

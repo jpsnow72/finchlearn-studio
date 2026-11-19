@@ -56,6 +56,9 @@ function elementToOCF(el: SceneElement, markers: CueMarker[] | undefined): Cours
     name: el.name,
     position: { x: el.x, y: el.y, w: el.w, h: el.h },
     timing: { start: msToS(el.startMs), duration: msToS(el.durationMs) },
+    animations: el.effects?.length
+      ? { presets: el.effects.map((effect) => ({ ...effect })) }
+      : undefined,
   };
   switch (el.kind) {
     case "text":
@@ -124,8 +127,11 @@ export function studioToOCF(project: StudioProject): {
       id: scene.id,
       name: scene.name,
       durationMs: scene.durationMs,
-      transition: scene.transition === "fade" ? "fade" : "cut",
+      transition: scene.transition,
       transitionMs: scene.transitionMs,
+      animations: scene.effects?.length
+        ? { presets: scene.effects.map((effect) => ({ ...effect })) }
+        : undefined,
       background:
         scene.background && "color" in scene.background ? scene.background.color : undefined,
       objects,
@@ -145,6 +151,7 @@ function ocfToElement(obj: CourseObject): SceneElement | null {
     y: obj.position?.y,
     w: obj.position?.w,
     h: obj.position?.h,
+    effects: obj.animations?.presets?.map((effect) => ({ ...effect })),
   };
   switch (obj.type) {
     case "text":
@@ -206,8 +213,9 @@ export function ocfToStudio(
       id: scene.id,
       name: scene.name,
       durationMs: scene.durationMs,
-      transition: scene.transition === "fade" ? "fade" : "cut",
+      transition: scene.transition ?? "cut",
       transitionMs: scene.transitionMs,
+      effects: scene.animations?.presets?.map((effect) => ({ ...effect })),
       background: scene.background ? { color: scene.background } : undefined,
       elements: scene.objects
         .map(ocfToElement)

@@ -6,6 +6,7 @@
  */
 import { create } from "zustand";
 import type {
+  AudioObject,
   CharacterAnimationName,
   CharacterColors,
   CharacterFacing,
@@ -13,12 +14,23 @@ import type {
   CharacterObject,
   CharacterSpeech,
   CharacterWaypoint,
+  AnimationPreset,
   CourseObject,
   VideoProject,
   VideoScene,
   VideoSceneTransition,
 } from "@finch-studio/core";
-import { makeVideoProject, makeVideoScene } from "@finch-studio/animation";
+import {
+  makeVideoProject,
+  makeVideoScene,
+  sceneContentDurationMs,
+} from "@finch-studio/animation";
+import {
+  addAudioVolumeKeyframe,
+  rippleDeleteAudioRegion as rippleDeleteRegion,
+  withAudioClipMetadata,
+  type AudioClipMetadata,
+} from "./audioEditing";
 
 let objCounter = 0;
 function newObjId(prefix: string): string {
@@ -110,18 +122,24 @@ interface VideoStudioState {
   setProjectName: (name: string) => void;
   // scenes
   addScene: () => void;
+  duplicateScene: (id: string) => void;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
-  setSceneDuration: (id: string, ms: number) => void;
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
+  setScenePresets: (id: string, presets: AnimationPreset[]) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
+  moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
   // objects
   selectObject: (id: string | null) => void;
   addObject: (obj: CourseObject) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
+  setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
+  updateAudioMetadata: (id: string, patch: Partial<AudioClipMetadata>) => void;
+  addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
+  rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -163,8 +181,33 @@ function asCharacter(o: CourseObject): CharacterObject | null {
   return o.type === "character" ? (o as CharacterObject) : null;
 }
 
+function deriveProjectDurations(project: VideoProject): VideoProject {
+  return {
+    ...project,
+    scenes: project.scenes.map((scene) => ({
+      ...scene,
+      durationMs: sceneContentDurationMs(scene),
+    })),
+  };
+}
+
+function duplicateObject(object: CourseObject): CourseObject {
+  const copy = JSON.parse(JSON.stringify(object)) as CourseObject & {
+    objects?: CourseObject[];
+    speech?: CharacterSpeech[];
+  };
+  copy.id = newObjId("obj");
+  if (Array.isArray(copy.objects)) {
+    copy.objects = copy.objects.map(duplicateObject);
+  }
+  if (Array.isArray(copy.speech)) {
+    copy.speech = copy.speech.map((line) => ({ ...line, id: newObjId("speech") }));
+  }
+  return copy;
+}
+
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
-  const initial = loadStored() ?? makeVideoProject("Untitled video");
+  const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
   const params =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
@@ -172,8 +215,9 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
   const embedObjectId: string | null = params?.get("embed") ?? null;
 
   const commit = (project: VideoProject) => {
-    persist(project);
-    set({ project });
+    const derivedProject = deriveProjectDurations(project);
+    persist(derivedProject);
+    set({ project: derivedProject });
   };
 
   return {
@@ -200,28 +244,59 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit({ ...project, scenes: [...project.scenes, scene] });
       set({ currentSceneId: scene.id });
     },
+    duplicateScene: (id) => {
+      const { project } = get();
+      const index = project.scenes.findIndex((scene) => scene.id === id);
+      if (index < 0) return;
+      const source = project.scenes[index];
+      const duplicate = {
+        ...source,
+        id: makeVideoScene().id,
+        name: `${source.name} copy`,
+        transition: "cut" as const,
+        objects: source.objects.map(duplicateObject),
+      };
+      const scenes = [...project.scenes];
+      scenes.splice(index + 1, 0, duplicate);
+      commit({ ...project, scenes });
+      set({ currentSceneId: duplicate.id, selectedObjectId: null });
+    },
     removeScene: (id) => {
       const { project, currentSceneId } = get();
       if (project.scenes.length <= 1) return;
+      const removedIndex = project.scenes.findIndex((scene) => scene.id === id);
+      if (removedIndex < 0) return;
       const scenes = project.scenes.filter((s) => s.id !== id);
       commit({ ...project, scenes });
       if (currentSceneId === id) {
-        set({ currentSceneId: scenes[0].id, selectedObjectId: null });
+        set({
+          currentSceneId: scenes[Math.min(removedIndex, scenes.length - 1)].id,
+          selectedObjectId: null,
+        });
       }
     },
     renameScene: (id, name) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, name }))),
-    setSceneDuration: (id, ms) =>
-      commit(patchScene(get().project, id, (s) => ({ ...s, durationMs: Math.max(500, ms) }))),
     setSceneTransition: (id, t) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, transition: t }))),
+    setScenePresets: (id, presets) =>
+      commit(
+        patchScene(get().project, id, (s) => ({
+          ...s,
+          animations: { ...s.animations, presets: presets.map((preset) => ({ ...preset })) },
+        })),
+      ),
     moveScene: (id, dir) => {
+      const i = get().project.scenes.findIndex((scene) => scene.id === id);
+      get().moveSceneTo(id, i + dir);
+    },
+    moveSceneTo: (id, j) => {
       const { project } = get();
       const i = project.scenes.findIndex((s) => s.id === id);
-      const j = i + dir;
       if (i < 0 || j < 0 || j >= project.scenes.length) return;
       const scenes = [...project.scenes];
-      [scenes[i], scenes[j]] = [scenes[j], scenes[i]];
+      const [moved] = scenes.splice(i, 1);
+      scenes.splice(j, 0, moved);
       commit({ ...project, scenes });
     },
     selectScene: (id) => set({ currentSceneId: id, selectedObjectId: null }),
@@ -241,6 +316,18 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const { project, currentSceneId } = get();
       commit(
         patchObject(project, currentSceneId, id, (o) => ({ ...o, ...patch }) as CourseObject),
+      );
+    },
+    setObjectPresets: (id, presets) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (o) => ({
+          ...o,
+          animations: {
+            ...o.animations,
+            presets: presets.map((preset) => ({ ...preset })),
+          },
+        }) as CourseObject),
       );
     },
     removeObject: (id) => {
@@ -263,6 +350,53 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const objects = [...scene.objects];
       [objects[i], objects[j]] = [objects[j], objects[i]];
       commit(patchScene(project, currentSceneId, (s) => ({ ...s, objects })));
+    },
+    updateAudioMetadata: (id, patch) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) =>
+          object.type === "audio"
+            ? withAudioClipMetadata(object as AudioObject, patch)
+            : object,
+        ),
+      );
+    },
+    addAudioVolumeKeyframe: (id, timeMs, decibels) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "audio") return object;
+          const durationMs = (object.timing?.duration ?? scene.durationMs / 1000) * 1000;
+          return addAudioVolumeKeyframe(
+            object as AudioObject,
+            timeMs,
+            decibels,
+            durationMs,
+          );
+        }),
+      );
+    },
+    rippleDeleteAudioRegion: (startMs, endMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((item) => item.id === currentSceneId);
+      if (!scene) return;
+      const start = Math.max(0, Math.min(startMs, endMs));
+      const end = Math.min(scene.durationMs, Math.max(startMs, endMs));
+      const removedDuration = Math.max(0, end - start);
+      commit(
+        patchScene(project, currentSceneId, (current) => ({
+          ...current,
+          durationMs: Math.max(500, current.durationMs - removedDuration),
+          objects: rippleDeleteRegion(
+            current.objects,
+            startMs,
+            endMs,
+            scene.durationMs,
+          ),
+        })),
+      );
     },
 
     setCharAnimation: (id, a) => {
