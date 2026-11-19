@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   useSceneClock,
   DialoguePlayer,
-  browserTts,
   projectTimeline,
   type DialogueLine,
 } from "@finch-studio/animation";
@@ -26,7 +25,8 @@ import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
 import { Timeline } from "./components/Timeline";
-import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText } from "./store";
+import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId } from "./store";
+import { narrationTts } from "./narrationProvider";
 
 export function App() {
   const scene = useCurrentScene();
@@ -42,7 +42,7 @@ export function App() {
   const [pathEdit, setPathEdit] = useState(false);
   const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | null>("characters");
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
-  const dialogueRef = useRef(new DialoguePlayer({ provider: browserTts }));
+  const dialogueRef = useRef(new DialoguePlayer({ provider: narrationTts }));
 
   // Reset clock + dialogue when switching scenes.
   useEffect(() => {
@@ -125,7 +125,8 @@ export function App() {
           rate: tts.rate,
           pitch: tts.pitch,
         };
-        if (tts.voiceId !== undefined) line.voiceId = tts.voiceId;
+        const voice = characterVoiceId(c);
+        if (voice) line.voiceId = voice;
         return line;
       }),
     );

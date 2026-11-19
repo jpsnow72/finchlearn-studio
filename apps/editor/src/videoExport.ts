@@ -40,8 +40,11 @@ import {
   visemesFromText,
   type ActionName,
 } from "@finch-studio/characters";
-import { timelineClipRange } from "./store";
+import { timelineClipRange, timelineLaneForObject, characterVoiceId } from "./store";
+import { getAudioClipMetadata } from "./audioEditing";
+import { ensureLineAudio } from "./narration";
 import { getRenderViewport } from "./exportPresets";
+import type { AudioObject } from "@finch-studio/core";
 
 const FPS = 30;
 
@@ -268,6 +271,123 @@ export interface CaptionOptions {
   captions?: boolean;
 }
 
+const MIX_SAMPLE_RATE = 48000;
+
+function dbToGain(db: number): number {
+  return Math.pow(10, db / 20);
+}
+
+/**
+ * The project's full audio mix, rendered offline: narration lines
+ * (production voices, generated on demand) at their scene offsets,
+ * plus audio clips with fades, volume keyframes, and music ducking
+ * under speech. Returns null when the project has no audio content.
+ * Throws when a narration line cannot be generated, because a silent
+ * training video is worse than a clear retry prompt.
+ */
+export async function buildProjectAudio(project: VideoProject): Promise<AudioBuffer | null> {
+  const { scenes: tl, totalMs } = projectTimeline(project);
+  if (tl.length === 0) return null;
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil((totalMs / 1000) * MIX_SAMPLE_RATE)), MIX_SAMPLE_RATE);
+  let scheduled = 0;
+
+  const speechWindows: { start: number; end: number }[] = [];
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "character") continue;
+      for (const line of (o as CharacterObject).speech ?? []) {
+        speechWindows.push({
+          start: (entry.startMs + line.start) / 1000,
+          end: (entry.startMs + line.start + line.duration) / 1000,
+        });
+      }
+    }
+  }
+
+  // Narration.
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "character") continue;
+      const voice = characterVoiceId(o);
+      if (!voice) continue;
+      for (const line of (o as CharacterObject).speech ?? []) {
+        if (!line.text.trim()) continue;
+        const { blob } = await ensureLineAudio(line.text, voice);
+        const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start((entry.startMs + line.start) / 1000);
+        scheduled++;
+      }
+    }
+  }
+
+  // Audio clips (music / sfx / uploaded audio).
+  for (const entry of tl) {
+    for (const o of entry.scene.objects) {
+      if (o.type !== "audio") continue;
+      const ao = o as AudioObject;
+      if (!ao.resource) continue;
+      const range = timelineClipRange(o, entry.scene.durationMs);
+      const meta = getAudioClipMetadata(ao);
+      let buf: AudioBuffer;
+      try {
+        const res = await fetch(ao.resource);
+        if (!res.ok) continue;
+        buf = await ctx.decodeAudioData(await res.arrayBuffer());
+      } catch {
+        continue; // A dead clip URL must not kill the whole export.
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const fadeGain = ctx.createGain();
+      const keyGain = ctx.createGain();
+      const duckGain = ctx.createGain();
+      src.connect(fadeGain).connect(keyGain).connect(duckGain).connect(ctx.destination);
+      const startSec = (entry.startMs + range.startMs) / 1000;
+      const durSec = Math.min(range.durationMs / 1000, buf.duration - (meta.sourceOffsetMs ?? 0) / 1000);
+      if (durSec <= 0) continue;
+      // Fades.
+      const fadeIn = Math.min((meta.fadeInMs ?? 0) / 1000, durSec / 2);
+      const fadeOut = Math.min((meta.fadeOutMs ?? 0) / 1000, durSec / 2);
+      fadeGain.gain.setValueAtTime(fadeIn > 0 ? 0 : 1, startSec);
+      if (fadeIn > 0) fadeGain.gain.linearRampToValueAtTime(1, startSec + fadeIn);
+      if (fadeOut > 0) {
+        fadeGain.gain.setValueAtTime(1, startSec + durSec - fadeOut);
+        fadeGain.gain.linearRampToValueAtTime(0, startSec + durSec);
+      }
+      // Volume keyframes (dB offsets over the clip).
+      const keys = [...(meta.volumeKeyframes ?? [])].sort((a, b) => a.timeMs - b.timeMs);
+      if (keys.length > 0) {
+        keyGain.gain.setValueAtTime(dbToGain(keys[0]!.decibels), startSec);
+        for (const k of keys) {
+          keyGain.gain.linearRampToValueAtTime(dbToGain(k.decibels), startSec + k.timeMs / 1000);
+        }
+      }
+      // Duck music under narration.
+      if (timelineLaneForObject(o) === "music") {
+        const DUCK = 0.3;
+        const RAMP = 0.15;
+        duckGain.gain.setValueAtTime(1, startSec);
+        for (const w of speechWindows) {
+          const ws = Math.max(startSec, w.start - 0.1);
+          const we = Math.min(startSec + durSec, w.end + 0.2);
+          if (we <= ws) continue;
+          duckGain.gain.linearRampToValueAtTime(DUCK, Math.max(startSec, ws - RAMP));
+          duckGain.gain.setValueAtTime(DUCK, we);
+          duckGain.gain.linearRampToValueAtTime(1, Math.min(startSec + durSec, we + RAMP));
+        }
+      }
+      src.start(startSec, (meta.sourceOffsetMs ?? 0) / 1000, durSec);
+      scheduled++;
+    }
+  }
+
+  if (scheduled === 0) return null;
+  return ctx.startRendering();
+}
+
 /** Burned in captions: the active dialogue line, bottom centre. */
 function drawCaptionOverlay(
   ctx: CanvasRenderingContext2D,
@@ -378,11 +498,26 @@ export async function exportVideoProject(
   const pctx = previousCanvas.getContext("2d");
   if (!pctx) throw new Error("Could not create the transition-compositing canvas. Try another browser.");
 
+  const audioBuffer = await buildProjectAudio(project);
   let stream: MediaStream;
   try {
     stream = canvas.captureStream(FPS);
   } catch {
     throw new Error("Canvas capture could not start. Refresh the editor and try again.");
+  }
+  // Mix the rendered project audio into the capture when there is any.
+  let audioCtx: AudioContext | null = null;
+  let audioSrc: AudioBufferSourceNode | null = null;
+  if (audioBuffer) {
+    audioCtx = new AudioContext();
+    const dest = audioCtx.createMediaStreamDestination();
+    audioSrc = audioCtx.createBufferSource();
+    audioSrc.buffer = audioBuffer;
+    audioSrc.connect(dest);
+    stream = new MediaStream([
+      ...stream.getVideoTracks(),
+      ...dest.stream.getAudioTracks(),
+    ]);
   }
   const mimeTypes = [
     "video/mp4;codecs=avc1.42E01E",
@@ -447,6 +582,10 @@ export async function exportVideoProject(
 
   try {
     rec.start(200);
+    if (audioCtx && audioSrc) {
+      void audioCtx.resume();
+      audioSrc.start();
+    }
 
     for (let f = 0; f < totalFrames; f++) {
       const tMs = Math.min(totalMs, (f * 1000) / FPS);
@@ -534,8 +673,9 @@ export async function exportMp4Project(
       "MP4 export needs WebCodecs (use Chrome or Edge), or pick the WebM export instead.",
     );
   }
-  const { Output, Mp4OutputFormat, BufferTarget, CanvasSource } =
+  const { Output, Mp4OutputFormat, BufferTarget, CanvasSource, AudioBufferSource } =
     await import("mediabunny");
+  const audioBuffer = await buildProjectAudio(project);
   const { width, height } = dimensions;
   const viewport = getRenderViewport(width, height);
   const { scenes: tl, totalMs } = projectTimeline(project);
@@ -602,7 +742,16 @@ export async function exportMp4Project(
     bitrate: 8_000_000,
   });
   output.addVideoTrack(source);
+  let audioSource: InstanceType<typeof AudioBufferSource> | null = null;
+  if (audioBuffer) {
+    audioSource = new AudioBufferSource({ codec: "aac", bitrate: 128_000 });
+    output.addAudioTrack(audioSource);
+  }
   await output.start();
+  if (audioSource && audioBuffer) {
+    await audioSource.add(audioBuffer);
+    audioSource.close();
+  }
 
   for (let f = 0; f < totalFrames; f++) {
     const tMs = Math.min(totalMs, (f * 1000) / FPS);

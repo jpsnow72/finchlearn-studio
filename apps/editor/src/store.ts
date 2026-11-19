@@ -248,6 +248,7 @@ interface VideoStudioState {
   removeWaypoint: (id: string, idx: number) => void;
   addSpeech: (id: string, s: CharacterSpeech) => void;
   updateSpeech: (id: string, lineId: string, patch: Partial<CharacterSpeech>) => void;
+  setCharacterVoice: (id: string, voiceId: string | undefined) => void;
   removeSpeech: (id: string, lineId: string) => void;
   // tts
   setTts: (patch: Partial<TtsSettings>) => void;
@@ -307,6 +308,27 @@ function duplicateObject(object: CourseObject): CourseObject {
 
 function studioMetadata(object: CourseObject): Record<string, unknown> {
   return object.extensions?.[STUDIO_EXTENSION] ?? {};
+}
+
+/** Default production voice per studio character (all basic/Kokoro, so
+ * narration works signed out; users can reassign per character). */
+const DEFAULT_VOICE_BY_DEF: Record<string, string> = {
+  maya: "af_heart",
+  leo: "am_michael",
+  rosa: "bf_emma",
+  walter: "bm_george",
+};
+
+/** The production voice assigned to a character object (metadata first,
+ * then the per-character default). Empty string means browser voice. */
+export function characterVoiceId(object: CourseObject): string {
+  const meta = studioMetadata(object);
+  if (typeof meta.voiceId === "string") return meta.voiceId;
+  if (object.type === "character") {
+    const def = characterForLegacyId((object as CharacterObject).characterId);
+    return DEFAULT_VOICE_BY_DEF[def.id] ?? "af_heart";
+  }
+  return "af_heart";
 }
 
 export function timelineLaneForObject(object: CourseObject): TimelineLane {
@@ -903,6 +925,21 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         patchObject(project, currentSceneId, id, (o) => {
           const c = asCharacter(o);
           return c ? { ...c, speech: [...(c.speech ?? []), { ...s }] } : o;
+        }),
+      );
+    },
+    setCharacterVoice: (id, voiceId) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "character") return object;
+          const meta = { ...studioMetadata(object) };
+          if (voiceId === undefined) delete meta.voiceId;
+          else meta.voiceId = voiceId;
+          return {
+            ...object,
+            extensions: { ...object.extensions, [STUDIO_EXTENSION]: meta },
+          } as CourseObject;
         }),
       );
     },
