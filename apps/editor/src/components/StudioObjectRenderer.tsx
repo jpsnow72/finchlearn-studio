@@ -3,12 +3,39 @@
  *
  * Handles the video-friendly types (character, text, shape, image); other
  * types render a placeholder note. Character limb animation + path movement
- * come from @finch-studio/animation's CharacterRenderer (driven by
- * SceneTimeContext).
+ * come from @finch-studio/characters' RiggedCharacter (driven by
+ * SceneTimeContext), on the standard skeleton and the approved
+ * Direction A and B style families.
  */
-import type { CSSProperties } from "react";
-import type { CourseObject } from "@finch-studio/core";
-import { CharacterFigure } from "@finch-studio/animation";
+import { useContext, type CSSProperties } from "react";
+import type { CharacterObject, CourseObject } from "@finch-studio/core";
+import { SceneTimeContext } from "@finch-studio/animation";
+import {
+  ACTION_NAMES,
+  RiggedCharacter,
+  characterForLegacyId,
+  type ActionName,
+} from "@finch-studio/characters";
+
+/** Map a legacy character animation name onto a studio action. */
+function studioAction(name: string | undefined): ActionName {
+  if (name && (ACTION_NAMES as string[]).includes(name)) return name as ActionName;
+  if (name === "nod") return "talk";
+  return "idle";
+}
+
+function CharacterView({ object }: { object: CharacterObject }) {
+  const tMs = useContext(SceneTimeContext);
+  const def = characterForLegacyId(object.characterId);
+  return (
+    <RiggedCharacter
+      def={def}
+      action={studioAction(object.characterAnimation)}
+      tMs={tMs ?? 0}
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
+}
 
 function stripHtml(html: string): string {
   const div = document.createElement("div");
@@ -19,7 +46,7 @@ function stripHtml(html: string): string {
 export function StudioObjectRenderer({ object }: { object: CourseObject }) {
   switch (object.type) {
     case "character":
-      return <CharacterFigure label={object.name} />;
+      return <CharacterView object={object} />;
     case "text": {
       const style: CSSProperties = {
         width: "100%",
