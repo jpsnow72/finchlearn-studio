@@ -667,6 +667,7 @@ export interface VideoProject {
    * extensions["x-finch-studio"].
    */
   extensions?: Extensions;
+  /**
    * Stage aspect for the whole project (issue #13). Additive and
    * backward compatible: absent means "16:9", exactly as projects
    * framed before the aspect switcher behaved.

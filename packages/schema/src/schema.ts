@@ -16,6 +16,7 @@ import {
   type FootageFreeze,
   type FootagePipLayout,
 } from "./footage.js";
+import {
   COLOR_CORRECTION_KEYS,
   COLOR_CORRECTION_MAX,
   COLOR_CORRECTION_MIN,
