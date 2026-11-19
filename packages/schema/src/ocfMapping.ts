@@ -319,7 +319,7 @@ function parseWhiteboard(raw: unknown): WhiteboardSceneStyle | undefined {
   return typeof r.surface === "string" ? { surface: r.surface } : {};
 }
 
-function elementToOCF(el: SceneElement, markers: CueMarker[] | undefined): CourseObject | null {
+function elementToOCF(el: SceneElement): CourseObject | null {
   const base = {
     id: el.id,
     name: el.name,
@@ -340,17 +340,11 @@ function elementToOCF(el: SceneElement, markers: CueMarker[] | undefined): Cours
         extensions: imageExtension(el),
       } satisfies ImageObject;
     case "footage": {
-      const cuePoints: CuePoint[] = (markers ?? []).map((m, i) => ({
-        id: `cue-${el.id}-${i}`,
-        name: m.label ?? m.type,
-        at: msToS(m.atMs),
-      }));
       return {
         ...base,
         type: "video",
         resource: el.asset.r2Key,
         controls: true,
-        cuePoints: cuePoints.length ? cuePoints : undefined,
         // Footage edits (issue #25) ride the studio extension so a
         // no-sidecar rebuild keeps trim, speed, freeze, crop, and PiP.
         extensions: {
@@ -413,7 +407,7 @@ export function studioToOCF(project: StudioProject): {
   const scenes: VideoScene[] = project.scenes.map((scene) => {
     sidecar.scenes[scene.id] = scene;
     const objects = scene.elements
-      .map((el) => elementToOCF(el, scene.markers))
+      .map((el) => elementToOCF(el))
       .filter((o): o is CourseObject => o !== null);
     attachCueMarkers(objects, scene);
     return {
