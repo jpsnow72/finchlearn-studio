@@ -1,4 +1,4 @@
-import type { CharacterObject, VideoProject, VideoScene } from "@finch-studio/core";
+import type { CharacterObject, Extensions, VideoProject, VideoScene } from "@finch-studio/core";
 
 const STUDIO_EXTENSION = "x-finch-studio";
 
@@ -18,7 +18,7 @@ export interface CaptionEdit {
 }
 
 export interface CaptionProject extends VideoProject {
-  extensions?: Record<string, unknown>;
+  extensions?: Extensions;
 }
 
 export interface CaptionCue extends CaptionEdit {
