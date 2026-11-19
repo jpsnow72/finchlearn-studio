@@ -27,6 +27,7 @@ import { TemplatesPanel } from "./components/TemplatesPanel";
 import { Timeline } from "./components/Timeline";
 import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId } from "./store";
 import { narrationTts } from "./narrationProvider";
+import { syncProjectToCloud } from "./cloud";
 
 export function App() {
   const scene = useCurrentScene();
@@ -132,6 +133,16 @@ export function App() {
     );
     dialogueRef.current.update(clock.tMs, lines);
   }, [clock.tMs, clock.playing, scene?.id]);
+
+  // Cloud save: keep the signed-in account's durable copy current
+  // (debounced; no-ops when signed out). localStorage stays the
+  // working copy, the cloud row is what the hub restores from.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void syncProjectToCloud(project);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [project]);
 
   const totalExportMs = projectTimeline(project).totalMs;
 

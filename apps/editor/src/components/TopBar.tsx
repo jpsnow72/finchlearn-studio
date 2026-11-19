@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { useStudioStore } from "../store";
 import { exportMp4Project, exportVideoProject } from "../videoExport";
+import { projectTimeline } from "@finch-studio/animation";
+import { uploadExportToCloud } from "../cloud";
 import {
   exportFileBaseName,
   EXPORT_PRESETS,
@@ -51,7 +53,7 @@ export function TopBar() {
           new Blob([content], { type: mimeType }),
           `${baseName}.${preset.captionFormat}`,
         );
-        setStatus(`${preset.captionFormat!.toUpperCase()} captions downloaded. Saving to the User Media Library is not connected in this build.`);
+        setStatus(`${preset.captionFormat!.toUpperCase()} captions downloaded.`);
       } else if (preset.kind === "mp4") {
         const blob = await exportMp4Project(
           project,
@@ -60,8 +62,7 @@ export function TopBar() {
           { captions: burnCaptions },
         );
         downloadBlob(blob, `${baseName}.mp4`);
-        recordExport(baseName);
-        setStatus("MP4 downloaded. Saving to the User Media Library is not connected in this build.");
+        await saveToLibrary(blob, baseName, "MP4");
       } else {
         setStatus("Rendering in real time. Keep this tab in front until it finishes.");
         const blob = await exportVideoProject(
@@ -72,8 +73,7 @@ export function TopBar() {
         );
         const extension = blob.type.includes("mp4") ? "mp4" : "webm";
         downloadBlob(blob, `${baseName}.${extension}`);
-        recordExport(baseName);
-        setStatus(`Video downloaded as ${extension.toUpperCase()}. Saving to the User Media Library is not connected in this build.`);
+        await saveToLibrary(blob, baseName, extension.toUpperCase());
       }
     } catch (err) {
       setStatus(`Export failed. ${err instanceof Error ? err.message : String(err)}`);
@@ -82,14 +82,42 @@ export function TopBar() {
     }
   };
 
-  const recordExport = (name: string) => {
+  const recordExport = (name: string, downloadUrl?: string) => {
     try {
       const key = "finch-studio-exports";
       const list = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
-      list.unshift({ id: `exp-${Date.now()}`, name, savedAt: new Date().toISOString() });
+      list.unshift({
+        id: `exp-${Date.now()}`,
+        name,
+        savedAt: new Date().toISOString(),
+        ...(downloadUrl ? { downloadUrl } : {}),
+      });
       localStorage.setItem(key, JSON.stringify(list.slice(0, 12)));
     } catch {
       // Hub list is a nicety; export success never depends on it.
+    }
+  };
+
+  /** After the local download, save the same file to the user's cloud
+   * media library (signed-in accounts). The download always stands on
+   * its own; the status line says plainly which saves happened. */
+  const saveToLibrary = async (blob: Blob, baseName: string, label: string) => {
+    setStatus(`${label} downloaded. Saving to your media library…`);
+    try {
+      const totalMs = projectTimeline(project).totalMs;
+      const saved = await uploadExportToCloud(blob, baseName, project.id, totalMs);
+      if (saved) {
+        recordExport(baseName, saved.downloadUrl);
+        setStatus(`${label} downloaded and saved to your media library.`);
+      } else {
+        recordExport(baseName);
+        setStatus(`${label} downloaded. Sign in to save exports to your media library.`);
+      }
+    } catch (err) {
+      recordExport(baseName);
+      setStatus(
+        `${label} downloaded. Cloud save failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 

@@ -18,6 +18,13 @@ import { useEffect, useState } from "react";
 import { App } from "./App";
 import { currentSession, signIn, signInWithGoogle, signOut, supabaseEnabled } from "./supabase";
 import { useStudioStore, makeStarterProject } from "./store";
+import {
+  fetchCloudProject,
+  listCloudExports,
+  listCloudProjects,
+  type CloudExport,
+  type CloudProjectSummary,
+} from "./cloud";
 
 export interface StudioSession {
   userId: string;
@@ -52,6 +59,7 @@ interface SavedExport {
   id: string;
   name: string;
   savedAt: string;
+  downloadUrl?: string;
 }
 
 function readList<T>(key: string): T[] {
@@ -274,12 +282,47 @@ export function FrontPage({
   onSignOut: () => void;
 }) {
   const listed = readList<SavedProject>(PROJECTS_KEY);
-  const exportsList = readList<SavedExport>(EXPORTS_KEY);
+  const localExports = readList<SavedExport>(EXPORTS_KEY);
   const current = useStudioStore((s) => s.project);
+  const loadProject = useStudioStore((s) => s.loadProject);
+  const [cloudProjects, setCloudProjects] = useState<CloudProjectSummary[]>([]);
+  const [cloudExports, setCloudExports] = useState<CloudExport[]>([]);
+  const [restoreNote, setRestoreNote] = useState("");
+  useEffect(() => {
+    let live = true;
+    void listCloudProjects().then((rows) => {
+      if (live) setCloudProjects(rows);
+    });
+    void listCloudExports().then((rows) => {
+      if (live) setCloudExports(rows);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const projects: SavedProject[] = [
     { id: current.id, name: current.name, updatedAt: new Date().toISOString() },
     ...listed.filter((p) => p.id !== current.id),
   ];
+  const cloudOnlyProjects = cloudProjects.filter(
+    (cp) => !projects.some((p) => p.id === cp.id),
+  );
+  const exportsList: SavedExport[] = [
+    ...localExports,
+    ...cloudExports
+      .filter((ce) => !localExports.some((le) => le.name === ce.name && le.savedAt.slice(0, 10) === ce.savedAt.slice(0, 10)))
+      .map((ce) => ({ id: ce.id, name: ce.name, savedAt: ce.savedAt })),
+  ];
+  const openCloudProject = async (id: string) => {
+    setRestoreNote("Loading from your library…");
+    const data = await fetchCloudProject(id);
+    if (data) {
+      loadProject(data);
+      onOpenEditor();
+    } else {
+      setRestoreNote("That project could not be loaded. It may have been removed.");
+    }
+  };
   return (
     <main className="shell">
       <h1>Welcome back</h1>
@@ -300,8 +343,20 @@ export function FrontPage({
                 <button type="button" onClick={onOpenEditor}>Open</button>
               </div>
             ))}
+            {cloudOnlyProjects.map((p) => (
+              <div className="shell-card" key={p.id}>
+                <strong>{p.name}</strong>
+                <div className="shell-empty">
+                  ☁ Cloud · Saved {new Date(p.updatedAt).toLocaleDateString()}
+                </div>
+                <button type="button" onClick={() => void openCloudProject(p.id)}>
+                  Open
+                </button>
+              </div>
+            ))}
           </div>
         )}
+        {restoreNote && <p className="shell-empty">{restoreNote}</p>}
         <div className="shell-ctas">
           <button type="button" className="shell-cta" onClick={onOpenEditor}>
             New Project
@@ -322,6 +377,11 @@ export function FrontPage({
               <div className="shell-card" key={e.id}>
                 <strong>{e.name}</strong>
                 <div className="shell-empty">Saved {new Date(e.savedAt).toLocaleDateString()}</div>
+                {e.downloadUrl && (
+                  <a href={e.downloadUrl} target="_blank" rel="noreferrer">
+                    Download
+                  </a>
+                )}
               </div>
             ))}
           </div>
