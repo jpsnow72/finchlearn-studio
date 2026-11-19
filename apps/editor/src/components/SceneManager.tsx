@@ -1,119 +1,181 @@
 /**
- * SceneManager — sidebar list of scenes: select, rename, reorder,
- * duration + transition, add/remove.
+ * SceneManager — always-visible scene strip with scene actions and seam transitions.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { projectTimeline } from "@finch-studio/animation";
 import type { VideoSceneTransition } from "@finch-studio/core";
 import { useStudioStore } from "../store";
+
+const transitions: { value: VideoSceneTransition; label: string }[] = [
+  { value: "cut", label: "Cut" },
+  { value: "fade", label: "Fade" },
+  { value: "slide", label: "Slide" },
+  { value: "wipe", label: "Wipe" },
+  { value: "zoom", label: "Zoom" },
+  { value: "push", label: "Push" },
+];
 
 export function SceneManager() {
   const project = useStudioStore((s) => s.project);
   const currentSceneId = useStudioStore((s) => s.currentSceneId);
   const selectScene = useStudioStore((s) => s.selectScene);
   const addScene = useStudioStore((s) => s.addScene);
+  const duplicateScene = useStudioStore((s) => s.duplicateScene);
   const removeScene = useStudioStore((s) => s.removeScene);
   const renameScene = useStudioStore((s) => s.renameScene);
-  const setSceneDuration = useStudioStore((s) => s.setSceneDuration);
   const setSceneTransition = useStudioStore((s) => s.setSceneTransition);
   const moveScene = useStudioStore((s) => s.moveScene);
+  const moveSceneTo = useStudioStore((s) => s.moveSceneTo);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const totalMs = projectTimeline(project).totalMs;
 
   return (
-    <div className="panel scene-manager">
-      <div className="panel-title">Scenes</div>
+    <section className="panel scene-manager" aria-label="Scene strip">
+      <header className="scene-strip-header">
+        <div className="panel-title">Scenes</div>
+        <span className="scene-total" aria-live="polite">
+          Project duration: {(totalMs / 1000).toFixed(1)}s
+        </span>
+        <button type="button" className="add-scene" onClick={addScene}>
+          + Add scene
+        </button>
+      </header>
       <ol className="scene-list">
-        {project.scenes.map((s, i) => {
-          const active = s.id === currentSceneId;
+        {project.scenes.map((scene, index) => {
+          const active = scene.id === currentSceneId;
+          const incoming = project.scenes[index + 1];
           return (
-            <li key={s.id} className={`scene-item${active ? " active" : ""}`}>
-              <button
-                type="button"
-                className="scene-select"
-                onClick={() => selectScene(s.id)}
+            <Fragment key={scene.id}>
+              <li
+                className={`scene-item${active ? " active" : ""}${draggedId === scene.id ? " dragging" : ""}`}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", scene.id);
+                  setDraggedId(scene.id);
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceId = draggedId ?? event.dataTransfer.getData("text/plain");
+                  if (sourceId) moveSceneTo(sourceId, index);
+                  setDraggedId(null);
+                }}
+                onDragEnd={() => setDraggedId(null)}
               >
-                <span className="scene-num">{i + 1}</span>
-                {editingId === s.id ? (
-                  <input
-                    autoFocus
-                    className="scene-name-input"
-                    defaultValue={s.name}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v) renameScene(s.id, v);
-                      setEditingId(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                      if (e.key === "Escape") setEditingId(null);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <span
-                    className="scene-name"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      setEditingId(s.id);
-                    }}
-                    title="Double-click to rename"
-                  >
-                    {s.name}
-                  </span>
-                )}
-                <span className="scene-meta">
-                  {(s.durationMs / 1000).toFixed(1)}s
-                </span>
-              </button>
-              {active && (
-                <div className="scene-detail">
-                  <label className="field-inline">
-                    Duration
-                    <input
-                      type="number"
-                      min={500}
-                      step={500}
-                      defaultValue={s.durationMs}
-                      key={s.durationMs}
-                      onBlur={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(v)) setSceneDuration(s.id, v);
-                      }}
-                    />
-                    ms
-                  </label>
-                  <label className="field-inline">
-                    Transition
-                    <select
-                      value={s.transition ?? "cut"}
-                      onChange={(e) =>
-                        setSceneTransition(s.id, e.target.value as VideoSceneTransition)
-                      }
+                <div className="scene-card">
+                  {editingId === scene.id ? (
+                    <div className="scene-select">
+                      <span className="scene-num">{index + 1}</span>
+                      <span className="scene-name">
+                        <input
+                          autoFocus
+                          className="scene-name-input"
+                          defaultValue={scene.name}
+                          aria-label={`Scene ${index + 1} name`}
+                          onBlur={(event) => {
+                            const value = event.target.value.trim();
+                            if (value) renameScene(scene.id, value);
+                            setEditingId(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+                            if (event.key === "Escape") setEditingId(null);
+                          }}
+                        />
+                      </span>
+                      <span className="scene-meta">{(scene.durationMs / 1000).toFixed(1)}s</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="scene-select"
+                      onClick={() => selectScene(scene.id)}
+                      aria-current={active ? "step" : undefined}
+                      title="Drag to reorder"
                     >
-                      <option value="cut">Cut</option>
-                      <option value="fade">Fade</option>
-                    </select>
-                  </label>
+                      <span className="scene-num">{index + 1}</span>
+                      <span className="scene-name">
+                        <span
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            setEditingId(scene.id);
+                          }}
+                          title="Double-click to rename"
+                        >
+                          {scene.name}
+                        </span>
+                      </span>
+                      <span className="scene-meta">{(scene.durationMs / 1000).toFixed(1)}s</span>
+                    </button>
+                  )}
                   <div className="scene-actions">
-                    <button type="button" title="Move up" onClick={() => moveScene(s.id, -1)}>↑</button>
-                    <button type="button" title="Move down" onClick={() => moveScene(s.id, 1)}>↓</button>
+                    <button
+                      type="button"
+                      title="Move scene left"
+                      aria-label={`Move ${scene.name} left`}
+                      onClick={() => moveScene(scene.id, -1)}
+                      disabled={index === 0}
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      title="Move scene right"
+                      aria-label={`Move ${scene.name} right`}
+                      onClick={() => moveScene(scene.id, 1)}
+                      disabled={index === project.scenes.length - 1}
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      title="Duplicate scene"
+                      aria-label={`Duplicate ${scene.name}`}
+                      onClick={() => duplicateScene(scene.id)}
+                    >
+                      +
+                    </button>
                     <button
                       type="button"
                       title="Delete scene"
-                      onClick={() => removeScene(s.id)}
+                      aria-label={`Delete ${scene.name}`}
+                      onClick={() => removeScene(scene.id)}
                       disabled={project.scenes.length <= 1}
                     >
                       ✕
                     </button>
                   </div>
                 </div>
+              </li>
+              {incoming && (
+                <li className="scene-seam">
+                  <label>
+                    <span aria-hidden="true">→</span>
+                    <select
+                      value={incoming.transition ?? "cut"}
+                      aria-label={`Transition from ${scene.name} to ${incoming.name}`}
+                      onChange={(event) =>
+                        setSceneTransition(
+                          incoming.id,
+                          event.target.value as VideoSceneTransition,
+                        )
+                      }
+                    >
+                      {transitions.map((transition) => (
+                        <option key={transition.value} value={transition.value}>
+                          {transition.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </li>
               )}
-            </li>
+            </Fragment>
           );
         })}
       </ol>
-      <button type="button" className="add-scene" onClick={addScene}>
-        + Add scene
-      </button>
-    </div>
+    </section>
   );
 }
