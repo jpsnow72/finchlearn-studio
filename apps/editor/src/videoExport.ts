@@ -9,8 +9,7 @@
  * the real rigged characters are a design-first workstream (issue #16) and
  * plug into the CharacterFigure seam. Path movement and facing are honored.
  *
- * Multi-scene: scenes render sequentially per `projectTimeline` (cut, and
- * fade via a globalAlpha cross-dissolve over the transition's overlap).
+ * Multi-scene: scenes render per projectTimeline with their seam transitions.
  */
 import type {
   CharacterObject,
@@ -278,12 +277,17 @@ export async function exportVideoProject(
   });
   rec.start(200);
 
-  // Offscreen canvas per scene for fade compositing.
+  // Offscreen canvases for transition compositing.
   const sceneCanvas = document.createElement("canvas");
   sceneCanvas.width = width;
   sceneCanvas.height = height;
   const sctx = sceneCanvas.getContext("2d");
   if (!sctx) throw new Error("Could not get 2D canvas context.");
+  const previousCanvas = document.createElement("canvas");
+  previousCanvas.width = width;
+  previousCanvas.height = height;
+  const pctx = previousCanvas.getContext("2d");
+  if (!pctx) throw new Error("Could not get 2D canvas context.");
 
   const frameMs = 1000 / FPS;
   const renderSceneFrame = (
@@ -303,7 +307,7 @@ export async function exportVideoProject(
 
   for (let f = 0; f < totalFrames; f++) {
     const tMs = Math.min(totalMs, (f * 1000) / FPS);
-    // Active scene: later scene wins during crossfade overlap.
+    // Active scene: later scene wins during a transition overlap.
     let segIdx = tl.length - 1;
     for (let i = tl.length - 1; i >= 0; i--) {
       if (tMs >= tl[i].startMs && tMs < tl[i].endMs) {
@@ -314,21 +318,43 @@ export async function exportVideoProject(
     const seg = tl[segIdx];
     const localT = Math.min(seg.scene.durationMs, tMs - seg.startMs);
 
-    // Fade: cross-dissolve with the previous scene over the overlap.
-    const alpha = transitionAlpha(project, tMs);
-    if (segIdx > 0 && alpha < 1) {
+    const progress = transitionAlpha(project, tMs);
+    const transition = seg.scene.transition ?? "cut";
+    if (segIdx > 0 && progress < 1 && transition !== "cut") {
       const prev = tl[segIdx - 1];
       const prevLocal = Math.min(
         prev.scene.durationMs,
         tMs - prev.startMs,
       );
-      renderSceneFrame(sctx, prev.scene, Math.max(0, prevLocal));
-      ctx.globalAlpha = 1;
-      ctx.drawImage(sceneCanvas, 0, 0);
       renderSceneFrame(sctx, seg.scene, localT);
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(sceneCanvas, 0, 0);
-      ctx.globalAlpha = 1;
+      if (transition === "fade") {
+        renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(previousCanvas, 0, 0);
+        ctx.globalAlpha = progress;
+        ctx.drawImage(sceneCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+      } else if (transition === "push") {
+        renderSceneFrame(pctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(previousCanvas, -progress * width, 0);
+        ctx.drawImage(sceneCanvas, (1 - progress) * width, 0);
+      } else if (transition === "slide") {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        ctx.drawImage(sceneCanvas, (1 - progress) * width, 0);
+      } else if (transition === "wipe") {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, progress * width, height);
+        ctx.clip();
+        ctx.drawImage(sceneCanvas, 0, 0);
+        ctx.restore();
+      } else {
+        renderSceneFrame(ctx, prev.scene, Math.max(0, prevLocal));
+        const scale = 0.8 + progress * 0.2;
+        const offsetX = (width * (1 - scale)) / 2;
+        const offsetY = (height * (1 - scale)) / 2;
+        ctx.drawImage(sceneCanvas, offsetX, offsetY, width * scale, height * scale);
+      }
     } else {
       renderSceneFrame(ctx, seg.scene, localT);
     }

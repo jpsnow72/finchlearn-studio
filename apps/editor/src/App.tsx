@@ -131,9 +131,9 @@ export function App() {
   return (
     <div className="studio">
       <TopBar />
+      <SceneManager />
       <div className="studio-main">
         <aside className="studio-left">
-          <SceneManager />
           <CharacterPicker />
           <div className="panel">
             <div className="panel-title">Add to scene</div>

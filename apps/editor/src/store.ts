@@ -19,7 +19,11 @@ import type {
   VideoScene,
   VideoSceneTransition,
 } from "@finch-studio/core";
-import { makeVideoProject, makeVideoScene } from "@finch-studio/animation";
+import {
+  makeVideoProject,
+  makeVideoScene,
+  sceneContentDurationMs,
+} from "@finch-studio/animation";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -149,11 +153,12 @@ interface VideoStudioState {
   setProjectName: (name: string) => void;
   // scenes
   addScene: () => void;
+  duplicateScene: (id: string) => void;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
-  setSceneDuration: (id: string, ms: number) => void;
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
+  moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
   // objects
   selectObject: (id: string | null) => void;
@@ -313,8 +318,33 @@ function rippleObjects(
   return result;
 }
 
+function deriveProjectDurations(project: VideoProject): VideoProject {
+  return {
+    ...project,
+    scenes: project.scenes.map((scene) => ({
+      ...scene,
+      durationMs: sceneContentDurationMs(scene),
+    })),
+  };
+}
+
+function duplicateObject(object: CourseObject): CourseObject {
+  const copy = JSON.parse(JSON.stringify(object)) as CourseObject & {
+    objects?: CourseObject[];
+    speech?: CharacterSpeech[];
+  };
+  copy.id = newObjId("obj");
+  if (Array.isArray(copy.objects)) {
+    copy.objects = copy.objects.map(duplicateObject);
+  }
+  if (Array.isArray(copy.speech)) {
+    copy.speech = copy.speech.map((line) => ({ ...line, id: newObjId("speech") }));
+  }
+  return copy;
+}
+
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
-  const initial = loadStored() ?? makeVideoProject("Untitled video");
+  const initial = deriveProjectDurations(loadStored() ?? makeVideoProject("Untitled video"));
   const params =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
@@ -322,15 +352,16 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
   const embedObjectId: string | null = params?.get("embed") ?? null;
 
   const commit = (project: VideoProject) => {
+    const derivedProject = deriveProjectDurations(project);
     const state = get();
     const previous = state.project;
-    if (project === previous) return;
-    persist(project);
+    if (derivedProject === previous) return;
+    persist(derivedProject);
     if (state.timelineEditOrigin) {
-      set({ project });
+      set({ project: derivedProject });
     } else {
       set((current) => ({
-        project,
+        project: derivedProject,
         pastProjects: [...current.pastProjects, previous].slice(-HISTORY_LIMIT),
         futureProjects: [],
       }));
@@ -409,14 +440,37 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       commit({ ...project, scenes: [...project.scenes, scene] });
       set({ currentSceneId: scene.id, selectedTimelineClipId: null });
     },
+    duplicateScene: (id) => {
+      const { project } = get();
+      const index = project.scenes.findIndex((scene) => scene.id === id);
+      if (index < 0) return;
+      const source = project.scenes[index];
+      const duplicate = {
+        ...source,
+        id: makeVideoScene().id,
+        name: `${source.name} copy`,
+        transition: "cut" as const,
+        objects: source.objects.map(duplicateObject),
+      };
+      const scenes = [...project.scenes];
+      scenes.splice(index + 1, 0, duplicate);
+      commit({ ...project, scenes });
+      set({
+        currentSceneId: duplicate.id,
+        selectedObjectId: null,
+        selectedTimelineClipId: null,
+      });
+    },
     removeScene: (id) => {
       const { project, currentSceneId } = get();
       if (project.scenes.length <= 1) return;
+      const removedIndex = project.scenes.findIndex((scene) => scene.id === id);
+      if (removedIndex < 0) return;
       const scenes = project.scenes.filter((s) => s.id !== id);
       commit({ ...project, scenes });
       if (currentSceneId === id) {
         set({
-          currentSceneId: scenes[0].id,
+          currentSceneId: scenes[Math.min(removedIndex, scenes.length - 1)].id,
           selectedObjectId: null,
           selectedTimelineClipId: null,
         });
@@ -424,17 +478,19 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
     renameScene: (id, name) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, name }))),
-    setSceneDuration: (id, ms) =>
-      commit(patchScene(get().project, id, (s) => ({ ...s, durationMs: Math.max(500, ms) }))),
     setSceneTransition: (id, t) =>
       commit(patchScene(get().project, id, (s) => ({ ...s, transition: t }))),
     moveScene: (id, dir) => {
+      const i = get().project.scenes.findIndex((scene) => scene.id === id);
+      get().moveSceneTo(id, i + dir);
+    },
+    moveSceneTo: (id, j) => {
       const { project } = get();
       const i = project.scenes.findIndex((s) => s.id === id);
-      const j = i + dir;
       if (i < 0 || j < 0 || j >= project.scenes.length) return;
       const scenes = [...project.scenes];
-      [scenes[i], scenes[j]] = [scenes[j], scenes[i]];
+      const [moved] = scenes.splice(i, 1);
+      scenes.splice(j, 0, moved);
       commit({ ...project, scenes });
     },
     selectScene: (id) =>
