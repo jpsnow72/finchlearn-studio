@@ -16,7 +16,7 @@ import type {
   KenBurnsFrame,
   LottieObject,
 } from "@finch-studio/core";
-import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS, CHARACTER_ANIMATION_GROUPS, DEFAULT_KEN_BURNS } from "@finch-studio/core";
+import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS, CHARACTER_ANIMATION_GROUPS, DEFAULT_KEN_BURNS, presetDefaults } from "@finch-studio/core";
 import {
   applyKenBurns,
   applyKineticText,
@@ -565,6 +565,10 @@ function EffectsEditor({
   const selectedPreset = choices.some((preset) => preset.name === presetName)
     ? presetName
     : choices[0].name;
+  const selectedDefinition = ANIMATION_PRESETS.find(
+    (preset) => preset.name === selectedPreset,
+  );
+  const selectedDefaults = presetDefaults(selectedPreset);
 
   return (
     <>
@@ -580,28 +584,47 @@ function EffectsEditor({
           <option value="motion">Motion</option>
         </select>
       </label>
-      <div className="field-row">
-        <label className="field effect-preset-select">
-          <span>Preset</span>
-          <select
-            value={selectedPreset}
-            onChange={(e) => setPresetName(e.target.value as AnimationPresetName)}
+      {/* Effect choice as visual cards (issue #112), the same card
+          language as the course side's G7 panel: square card, effect
+          name, selected state. The full shared registry is offered,
+          including Float, Baseline Reveal, and Block Reveal. */}
+      <div className="effect-cards" role="group" aria-label="Effect">
+        {choices.map((preset) => (
+          <button
+            type="button"
+            key={preset.name}
+            className={`effect-card${preset.name === selectedPreset ? " selected" : ""}`}
+            data-preset={preset.name}
+            aria-pressed={preset.name === selectedPreset}
+            title={preset.hint}
+            onClick={() => setPresetName(preset.name)}
           >
-            {choices.map((preset) => (
-              <option key={preset.name} value={preset.name} title={preset.hint}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <span className={`effect-card-thumb thumb-${preset.category}`} aria-hidden="true">
+              <span className="effect-card-block" />
+            </span>
+            <span className="effect-card-name">{preset.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="field-row effect-add-row">
         <button
           type="button"
           onClick={() =>
-            onChange([...presets, { name: selectedPreset, start: 0, duration: 600 }])
+            onChange([
+              ...presets,
+              {
+                name: selectedPreset,
+                start: selectedDefaults.start,
+                duration: selectedDefaults.duration,
+              },
+            ])
           }
         >
           Add preset
         </button>
+        <span className="muted">
+          {selectedDefinition?.hint} · {selectedDefaults.duration} ms
+        </span>
       </div>
       {presets.map((effect, index) => {
         const definition = ANIMATION_PRESETS.find((preset) => preset.name === effect.name);
@@ -620,41 +643,83 @@ function EffectsEditor({
               </button>
             </div>
             <div className="effect-options">
-              <label className="field-inline">
-                Delay
-                <input
-                  type="number"
-                  min={0}
-                  step={50}
-                  defaultValue={effect.start ?? 0}
-                  key={`${index}-delay-${effect.start ?? 0}`}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (Number.isFinite(value)) update({ start: Math.max(0, value) });
-                  }}
-                />
-                ms
-              </label>
-              <label className="field-inline">
-                Duration
-                <input
-                  type="number"
-                  min={1}
-                  step={50}
-                  defaultValue={effect.duration ?? 600}
-                  key={`${index}-duration-${effect.duration ?? 600}`}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (Number.isFinite(value)) update({ duration: Math.max(1, value) });
-                  }}
-                />
-                ms
-              </label>
+              <EffectTiming
+                label="Delay"
+                value={effect.start ?? 0}
+                sliderMin={0}
+                sliderMax={5000}
+                numericMin={0}
+                fieldKey={`${index}-delay`}
+                onCommit={(value) => update({ start: value })}
+              />
+              <EffectTiming
+                label="Duration"
+                value={effect.duration ?? 600}
+                sliderMin={100}
+                sliderMax={3000}
+                numericMin={1}
+                fieldKey={`${index}-duration`}
+                onCommit={(value) => update({ duration: value })}
+              />
             </div>
           </div>
         );
       })}
     </>
+  );
+}
+
+/**
+ * One effect timing control (issue #112): a slider beside the numeric
+ * millisecond input. Slider ranges follow the spec (Delay 0 to 5s,
+ * Duration 0.1 to 3s, in 0.1s steps); values are stored in ms, as
+ * before. The slider commits as it moves and clamps to its range;
+ * the numeric input keeps the panel's blur-commit pattern and may
+ * exceed the slider range (a Ken Burns default is 6000ms), in which
+ * case the slider rests at its end.
+ */
+function EffectTiming({
+  label,
+  value,
+  sliderMin,
+  sliderMax,
+  numericMin,
+  fieldKey,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  sliderMin: number;
+  sliderMax: number;
+  numericMin: number;
+  fieldKey: string;
+  onCommit: (value: number) => void;
+}) {
+  return (
+    <label className="field-inline effect-timing">
+      {label}
+      <input
+        type="range"
+        min={sliderMin}
+        max={sliderMax}
+        step={100}
+        value={Math.min(sliderMax, Math.max(sliderMin, value))}
+        aria-label={`${label} slider`}
+        onChange={(e) => onCommit(Number(e.target.value))}
+      />
+      <input
+        type="number"
+        min={numericMin}
+        step={50}
+        defaultValue={value}
+        key={`${fieldKey}-${value}`}
+        onBlur={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) onCommit(Math.max(numericMin, next));
+        }}
+      />
+      ms
+    </label>
   );
 }
 

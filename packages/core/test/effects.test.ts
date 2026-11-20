@@ -190,7 +190,14 @@ describe("ANIMATION_PRESETS derived from the registry", () => {
   });
 
   it("lists every registry variant exactly once, float joining in Motion", () => {
-    expect(ANIMATION_PRESETS).toHaveLength(33);
+    // Issue #112 re-pin: the list now appends the two registry-effect
+    // presets (baselineReveal, blockReveal) after the 33
+    // variant-derived entries; the variants themselves still appear
+    // exactly once each, in registry order, at the head of the list.
+    expect(ANIMATION_PRESETS).toHaveLength(35);
+    expect(
+      ANIMATION_PRESETS.slice(0, 33).map((p) => p.name),
+    ).toEqual(listEffectVariants().map((entry) => entry.variant.presetName));
     const names = ANIMATION_PRESETS.map((p) => p.name);
     expect(new Set(names).size).toBe(names.length);
     const byName = new Map(ANIMATION_PRESETS.map((p) => [p.name, p]));

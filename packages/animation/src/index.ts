@@ -18,7 +18,13 @@ export {
   useAnimatedObjectStyle,
   WithObjectAnimation,
 } from "./SceneTimeContext.js";
-export { sampledToStyle, timelineStyleFor, mergeAnimatedStyle } from "./animatedStyle.js";
+export {
+  sampledToStyle,
+  timelineStyleFor,
+  mergeAnimatedStyle,
+  baselineRevealClipPath,
+  blockRevealOverlayStyle,
+} from "./animatedStyle.js";
 export { useSceneClock, type SceneClock } from "./useSceneClock.js";
 export {
   BrowserTtsProvider,

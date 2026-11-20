@@ -8,6 +8,7 @@
  */
 import type { CSSProperties } from "react";
 import {
+  DEFAULT_TRACK_DURATION_MS,
   sampleAnimations,
   sampleTimeline,
   type Animations,
@@ -51,6 +52,68 @@ export function sampledToStyle(v: SampledValues): CSSProperties {
     style.clipPath = `inset(0 0 ${(1 - v.wipeDown) * 100}% 0)`;
   }
   return style;
+}
+
+/**
+ * Baseline Reveal presentation (issue #112): while an object's
+ * baselineReveal preset is still rising, the part of the object below
+ * its resting baseline is masked, so it reads as rising from behind
+ * an invisible line. The mask is the preset's own sampled y offset
+ * (16px settling to 0) expressed as a bottom clip; before the window
+ * the object sits fully behind the baseline, after it there is no
+ * clip. Returns undefined when no baseline reveal applies or nothing
+ * is masked. Hosts apply the returned clip-path to the object element
+ * (a draw-on wipe, when present, takes precedence, as it is applied
+ * later by the stage).
+ */
+export function baselineRevealClipPath(
+  animations: Pick<Animations, "presets" | "timeline"> | undefined,
+  tMs: number,
+): string | undefined {
+  const preset = animations?.presets?.find((p) => p.name === "baselineReveal");
+  if (!preset) return undefined;
+  const y = sampleAnimations({ presets: [preset] }, tMs).y;
+  if (y === undefined || y <= 0) return undefined;
+  return `inset(0 0 ${y}px 0)`;
+}
+
+/** Width of the block-reveal overlay slab, as a percent of the object. */
+const BLOCK_REVEAL_SLAB_PCT = 14;
+
+/**
+ * Block Reveal overlay (issue #112): the solid color block the shared
+ * registry's renderer note calls for. While an object's blockReveal
+ * preset is inside its window, a slab rides the reveal front on the
+ * not-yet-revealed side: the object's own wipeRight clip unmasks it
+ * behind the slab (see sampledToStyle). The slab spans from the front
+ * leftward and shrinks as the front exits the left edge. Returns null
+ * outside the window or when no block reveal applies, so hosts render
+ * the overlay only while it is on screen. Position it absolutely
+ * inside the object's (positioned) element.
+ */
+export function blockRevealOverlayStyle(
+  animations: Pick<Animations, "presets" | "timeline"> | undefined,
+  tMs: number,
+): CSSProperties | null {
+  const preset = animations?.presets?.find((p) => p.name === "blockReveal");
+  if (!preset) return null;
+  const start = preset.start ?? 0;
+  const duration = Math.max(1, preset.duration ?? DEFAULT_TRACK_DURATION_MS);
+  if (tMs < start || tMs >= start + duration) return null;
+  const v = sampleAnimations({ presets: [preset] }, tMs).wipeRight;
+  if (v === undefined) return null;
+  const frontPct = (1 - v) * 100;
+  const widthPct = Math.min(BLOCK_REVEAL_SLAB_PCT, frontPct);
+  if (widthPct <= 0) return null;
+  return {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: `${frontPct - widthPct}%`,
+    width: `${widthPct}%`,
+    background: "var(--accent2, #4c7dd9)",
+    pointerEvents: "none",
+  };
 }
 
 /**

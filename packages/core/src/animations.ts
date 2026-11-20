@@ -80,6 +80,33 @@ function pickerCategory(
 }
 
 /**
+ * The two registry effects no preset engine expands by variant
+ * (issue #112): baseline-reveal and block-reveal carry no variants in
+ * the shared registry, because renderers key off the effect id. Their
+ * Studio preset names live here (the registry body stays untouched),
+ * mapped to the registry definitions, so their picker entries,
+ * expansions, and timing defaults all stay registry-sourced; only
+ * the picker hints are Studio copy.
+ */
+const REGISTRY_EFFECT_PRESETS: ReadonlyMap<
+  AnimationPresetName,
+  { effectId: string; hint: string }
+> = new Map([
+  ["baselineReveal", { effectId: "baseline-reveal", hint: "Rises from behind a baseline mask" }],
+  ["blockReveal", { effectId: "block-reveal", hint: "A color block sweeps across to reveal" }],
+]);
+
+function registryEffectDefinition(name: AnimationPresetName) {
+  const def = REGISTRY_EFFECT_PRESETS.get(name);
+  if (!def) return undefined;
+  const effect = getEffect(def.effectId);
+  if (!effect) {
+    throw new Error(`effects registry is missing ${def.effectId}`);
+  }
+  return { effect, hint: def.hint };
+}
+
+/**
  * One-click preset list, derived from the Shared Effects Core registry
  * (effects.ts, issue #111): every registry variant with a preset name,
  * in registry order. The 32 historical Studio presets keep their
@@ -87,19 +114,51 @@ function pickerCategory(
  * single source of truth (it was previously only a motion package
  * preset, not a core preset). The two fade hints adopt the registry
  * wording (an arrow in place of the word "to"); no other label or
- * hint changes.
+ * hint changes. Baseline Reveal and Block Reveal (issue #112) append
+ * after the variant-derived entries, built from their registry
+ * definitions above.
  */
 export const ANIMATION_PRESETS: ReadonlyArray<{
   name: AnimationPresetName;
   label: string;
   hint: string;
   category: "enter" | "exit" | "emphasis" | "motion";
-}> = listEffectVariants().map((entry) => ({
-  name: entry.variant.presetName as AnimationPresetName,
-  label: entry.variant.label,
-  hint: entry.variant.hint,
-  category: pickerCategory(entry),
-}));
+}> = [
+  ...listEffectVariants().map((entry) => ({
+    name: entry.variant.presetName as AnimationPresetName,
+    label: entry.variant.label,
+    hint: entry.variant.hint,
+    category: pickerCategory(entry),
+  })),
+  ...[...REGISTRY_EFFECT_PRESETS.keys()].map((name) => {
+    const { effect, hint } = registryEffectDefinition(name)!;
+    return {
+      name,
+      label: effect.label,
+      hint,
+      category: "enter" as const,
+    };
+  }),
+];
+
+/**
+ * Registry default timing for a preset (issue #112): the parent
+ * effect's default delay and duration from the shared registry, so a
+ * newly added effect lands at its spec default (Fade 400ms, Slide
+ * 500ms, Typewriter 1200ms, Ken Burns 6000ms) instead of the flat
+ * 600ms the panel used before. Unknown names fall back to the flat
+ * engine default.
+ */
+export function presetDefaults(name: AnimationPresetName): {
+  start: number;
+  duration: number;
+} {
+  const effect =
+    getEffectVariant(name)?.effect ??
+    registryEffectDefinition(name)?.effect;
+  if (!effect) return { start: 0, duration: DEFAULT_TRACK_DURATION_MS };
+  return { start: effect.defaultDelayMs, duration: effect.defaultDurationMs };
+}
 
 /** Easing functions map normalized progress to an interpolation weight. */
 export const EASINGS: Record<EasingName, (t: number) => number> = {
@@ -294,7 +353,10 @@ function expandRecipeTrack(
  * object is the marker and carries the reveal window (start and
  * duration); the motion graphics toolkit expands the preset into a
  * deterministic per-unit reveal schedule that the stage renderer and
- * the export renderer sample identically.
+ * the export renderer sample identically. Baseline Reveal and Block
+ * Reveal (issue #112) have no registry variants; they expand from
+ * their registry definitions' canonical tracks, so the stage and the
+ * export renderer sample the same values the course renderer will.
  */
 export function expandAnimationPreset(
   preset: AnimationPresetName,
@@ -304,6 +366,12 @@ export function expandAnimationPreset(
   const duration = opts.duration ?? DEFAULT_TRACK_DURATION_MS;
   const distance = opts.distance ?? 300;
   const kenBurns = opts.kenBurns ?? DEFAULT_KEN_BURNS;
+  const registryEffect = registryEffectDefinition(preset);
+  if (registryEffect) {
+    return registryEffect.effect.tracks.map((recipe) =>
+      expandRecipeTrack(recipe, preset, start, duration, distance, kenBurns),
+    );
+  }
   const entry = getEffectVariant(preset);
   if (!entry) return [];
   return entry.variant.tracks.map((recipe) =>

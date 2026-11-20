@@ -512,7 +512,9 @@ export type AnimationPresetName =
   | "typewriterReveal"
   | "wordReveal"
   | "lineReveal"
-  | "float";
+  | "float"
+  | "baselineReveal"
+  | "blockReveal";
 
 /** A named engine preset with its authored delay and duration. */
 export interface AnimationPreset {
