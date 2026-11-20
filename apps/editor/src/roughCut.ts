@@ -42,6 +42,8 @@ export type {
   TranscriptStatus,
   TranscriptWord,
 };
+import { getObjectTranscript } from "./transcription";
+
 export { getObjectTranscript, withObjectTranscript } from "./transcription";
 
 // ---------------------------------------------------------------------------
