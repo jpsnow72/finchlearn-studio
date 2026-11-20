@@ -25,6 +25,7 @@ export {
   hasTimeline,
   timelineEndMs,
   expandAnimationPreset,
+  presetDefaults,
   sceneDurationMs,
 } from "./animations.js";
 export type { SampledValues, PresetOptions, PathSample, CharacterAnimationGroup, KenBurnsFrame } from "./animations.js";

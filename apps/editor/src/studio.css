@@ -200,6 +200,21 @@ input[type="range"] { accent-color: var(--accent); }
 .effect-heading, .effect-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .effect-options { margin-top: 8px; flex-wrap: wrap; }
 .effect-heading button { padding: 3px 8px; }
+/* Effect choice cards + timing sliders (issue #112) */
+.effect-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.effect-card { display: flex; flex-direction: column; gap: 4px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg3); cursor: pointer; text-align: center; }
+.effect-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--bg2); }
+.effect-card-thumb { position: relative; display: block; aspect-ratio: 1; border-radius: 5px; background: var(--bg2); overflow: hidden; }
+.effect-card.selected .effect-card-thumb { background: var(--bg3); }
+.effect-card-block { position: absolute; left: 22%; top: 30%; width: 56%; height: 40%; border-radius: 3px; background: var(--accent); opacity: 0.85; }
+.effect-card-thumb.thumb-exit .effect-card-block { opacity: 0.3; }
+.effect-card-thumb.thumb-emphasis .effect-card-block { border-radius: 50%; }
+.effect-card-thumb.thumb-motion .effect-card-block { left: 8%; width: 36%; }
+.effect-card-name { font-size: 11px; line-height: 1.25; }
+.effect-add-row { align-items: center; margin-bottom: 4px; }
+.effect-timing { display: flex; align-items: center; gap: 6px; }
+.effect-timing input[type="range"] { width: 88px; }
+.effect-timing input[type="number"] { width: 72px; }
 .wp-row {
   display: grid; grid-template-columns: 24px 1fr 1fr 1fr auto; gap: 4px; align-items: end;
   font-size: 12px; margin-bottom: 6px; padding: 6px;

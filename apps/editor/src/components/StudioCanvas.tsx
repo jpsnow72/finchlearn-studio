@@ -17,6 +17,8 @@ import { StudioObjectRenderer } from "./StudioObjectRenderer";
 import { sceneBackgroundCss } from "../content/bundledContent";
 import { isMulticamObjectVisibleAt } from "../multicam";
 import {
+  baselineRevealClipPath,
+  blockRevealOverlayStyle,
   effectiveAnimationsForObject,
   mergeAnimatedStyle,
   objectOutsideFrame,
@@ -145,15 +147,28 @@ export function StudioCanvas({
                 const drawSample =
                   tMs === null ? null : sampleDrawOnForObject(o, range, tMs);
                 const drawTreatment = drawOnForObject(o);
+                const effAnims = effectiveAnimationsForObject(o);
                 let style = mergeAnimatedStyle(
                   objectStyle,
-                  tMs === null ? {} : timelineStyleFor(effectiveAnimationsForObject(o), tMs),
+                  tMs === null ? {} : timelineStyleFor(effAnims, tMs),
                 );
+                // Baseline Reveal (issue #112): mask the part of the
+                // object still below its baseline while it rises. A
+                // draw-on wipe below takes precedence when both apply.
+                const baselineClip =
+                  tMs === null ? undefined : baselineRevealClipPath(effAnims, tMs);
+                if (baselineClip && style?.clipPath === undefined) {
+                  style = { ...style, clipPath: baselineClip };
+                }
                 if (drawSample && (o.type === "text" || o.type === "image")) {
                   // Text and images reveal with the wipe that matches
                   // the shape stroke progress at the same timestamp.
                   style = { ...style, clipPath: wipeClipPath(drawSample.progress) };
                 }
+                // Block Reveal (issue #112): the solid block riding
+                // the reveal front, drawn over the object content.
+                const blockOverlay =
+                  tMs === null ? null : blockRevealOverlayStyle(effAnims, tMs);
                 return (
                   <div
                     key={o.id}
@@ -173,6 +188,9 @@ export function StudioCanvas({
                           : undefined
                       }
                     />
+                    {blockOverlay && (
+                      <div className="studio-block-reveal" style={blockOverlay} />
+                    )}
                     {isSel && <div className="studio-sel-ring" />}
                     {outside && (
                       <div className="studio-oof-badge">Outside frame</div>
