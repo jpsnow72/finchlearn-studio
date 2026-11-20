@@ -41,6 +41,8 @@ import {
   visemesFromText,
 } from "@finch-studio/characters";
 import { studioActionFor } from "../videoExport";
+import { getStoredIngest } from "@finch-studio/media";
+import { previewSourceFor, storedIngestProxyUrl } from "../ingestClient";
 import { customDefOfObject } from "../customCharacters";
 import { textDirectionOf } from "@finch-studio/translation";
 import { feColorMatrixValues } from "@finch-studio/schema";
@@ -169,6 +171,17 @@ function FootageView({ object }: { object: VideoObject }) {
   const tMs = useContext(SceneTimeContext);
   const videoRef = useRef<HTMLVideoElement>(null);
   const resolved = resolveFootageObject(object);
+  // Preview prefers the ingest proxy once the job is done (issue #7);
+  // the original stays the export source and the fallback here when
+  // the proxy artefact can no longer be loaded.
+  const storedIngest = getStoredIngest(object);
+  const preview = previewSourceFor({
+    originalUrl: object.resource ?? "",
+    ingestOutputs: storedIngest?.outputs ?? null,
+    proxyUrl: storedIngestProxyUrl(object),
+  });
+  const [proxyFailed, setProxyFailed] = useState(false);
+  const previewSrc = proxyFailed ? object.resource : preview.url;
   const localMs = (tMs ?? 0) - footageClipStartMs(object);
   const at = footageSourceAt(resolved, localMs);
 
@@ -214,11 +227,14 @@ function FootageView({ object }: { object: VideoObject }) {
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <video
         ref={videoRef}
-        src={object.resource}
+        src={previewSrc}
         style={videoStyle}
         muted={resolved.volume === 0}
         playsInline
         preload="auto"
+        onError={() => {
+          if (preview.isProxy) setProxyFailed(true);
+        }}
       />
     </div>
   );

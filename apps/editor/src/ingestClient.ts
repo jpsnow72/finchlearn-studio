@@ -18,6 +18,7 @@
  * to the proxy (resolveExportSource in the media contract).
  */
 import {
+  INGEST_EXTENSION,
   getStoredIngest,
   planIngest,
   resolveExportSource,
@@ -160,6 +161,34 @@ export function exportSourceFor(sources: EditorMediaSources): string {
  * the Timeline and audio consumers. Returns the asset unchanged when
  * the job has no outputs yet.
  */
+/**
+ * Stamp the finished job's proxy artefact URL next to the ingest
+ * record (extensions["x-finch-studio"].ingestProxyUrl), so preview
+ * surfaces can resolve the proxy from the object alone while the
+ * artefacts are still service hosted. Once the ship-point R2 sync
+ * lands, callers resolve the record's proxy r2Key through the media
+ * worker instead and this slot can retire.
+ */
+export function stampIngestProxyUrl<T extends { extensions?: Record<string, Record<string, unknown>> }>(
+  asset: T,
+  proxyUrl: string,
+): T {
+  const ext: Record<string, unknown> = { ...(asset.extensions?.[INGEST_EXTENSION] ?? {}) };
+  ext.ingestProxyUrl = proxyUrl;
+  return {
+    ...asset,
+    extensions: { ...(asset.extensions ?? {}), [INGEST_EXTENSION]: ext },
+  };
+}
+
+/** Read back the proxy artefact URL stamped by stampIngestProxyUrl. */
+export function storedIngestProxyUrl(carrier: {
+  extensions?: Record<string, Record<string, unknown>>;
+}): string | null {
+  const raw = carrier.extensions?.[INGEST_EXTENSION]?.ingestProxyUrl;
+  return typeof raw === "string" && raw ? raw : null;
+}
+
 export function stampIngestState<T extends { extensions?: Record<string, Record<string, unknown>> }>(
   asset: T,
   input: IngestInput,

@@ -370,6 +370,8 @@ input[type="range"] { accent-color: var(--accent); }
 .clean-voice-compare button[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
 .audio-add { display: flex; gap: 6px; margin-top: 8px; }
 .audio-add input { flex: 1; min-width: 0; }
+.media-add-url { display: flex; gap: 6px; margin-top: 8px; }
+.media-add-url input { flex: 1; min-width: 0; }
 .lib-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .lib-row input { flex: 1; min-width: 100px; }
 .lib-snap { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border, #ddd); font-size: 12px; }

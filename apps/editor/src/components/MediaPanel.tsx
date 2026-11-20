@@ -8,7 +8,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CourseObject } from "@finch-studio/core";
 import type { MediaAsset } from "@finch-studio/media";
-import { useStudioStore, makeStudioImage } from "../store";
+import { useStudioStore, makeStudioImage, makeStudioVideo } from "../store";
+import { ingestVideoObjectByUrl } from "../ingestFlow";
 import { RecordPanel } from "./RecordPanel";
 import { GenerateAssetPanel } from "./GenerateAssetPanel";
 import {
@@ -79,6 +80,17 @@ function loadSceneGroups(): SceneGroupPreset[] {
   }
 }
 
+function nameFromUrl(url: string): string {
+  try {
+    const tail = decodeURIComponent(
+      new URL(url).pathname.split("/").filter(Boolean).at(-1) ?? "",
+    );
+    return tail || "Video";
+  } catch {
+    return "Video";
+  }
+}
+
 async function hashOf(text: string): Promise<string> {
   try {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -93,6 +105,7 @@ export function MediaPanel() {
   const currentSceneId = useStudioStore((s) => s.currentSceneId);
   const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addObject = useStudioStore((s) => s.addObject);
+  const updateObject = useStudioStore((s) => s.updateObject);
   const insertObjectGroup = useStudioStore((s) => s.insertObjectGroup);
   const setSceneBackground = useStudioStore((s) => s.setSceneBackground);
   const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds" | "generate" | "builtin" | "browse">("stock");
@@ -107,6 +120,7 @@ export function MediaPanel() {
   const [groups, setGroups] = useState<SceneGroupPreset[]>(loadSceneGroups);
   const [groupName, setGroupName] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [note, setNote] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const scene = project.scenes.find((item) => item.id === currentSceneId);
@@ -162,6 +176,28 @@ export function MediaPanel() {
     }
     addObject(makeStudioImage(dataUrl, file.name));
     setNote(`Uploaded and added "${file.name}".`);
+  };
+
+  const addVideoByUrl = () => {
+    const url = videoUrl.trim();
+    if (!url) return;
+    const name = nameFromUrl(url);
+    const object = makeStudioVideo(url, name);
+    addObject(object);
+    setVideoUrl("");
+    setNote(`Added "${name}" to the scene.`);
+    // The object is usable at once from its original URL; the ingest
+    // job (issue #7) runs behind it and switches preview to the 720p
+    // proxy when its artefacts are ready.
+    void ingestVideoObjectByUrl(object, updateObject).then((outcome) => {
+      if (outcome.status === "done") {
+        setNote(`Ingest finished for "${name}": preview now uses the 720p proxy.`);
+      } else if (outcome.status === "failed") {
+        setNote(
+          `Ingest did not finish for "${name}" (${outcome.error}). The original video stays in the scene.`,
+        );
+      }
+    });
   };
 
   const onLottieUpload = async (file: File) => {
@@ -400,6 +436,25 @@ export function MediaPanel() {
               e.target.value = "";
             }}
           />
+          <div className="sub-title">Video by URL</div>
+          <div className="media-add-url">
+            <input
+              type="url"
+              placeholder="Video file URL (mp4, webm)"
+              aria-label="Video URL"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+            />
+            <button type="button" disabled={!videoUrl.trim()} onClick={addVideoByUrl}>
+              Add video
+            </button>
+          </div>
+          <p className="muted">
+            The video lands in the scene right away from its original URL. When the
+            ingest service is configured, a 720p proxy, waveform peaks, and a thumbnail
+            strip are generated in the background, and preview switches to the proxy
+            when they are ready. Exports always use the original.
+          </p>
           <div className="sub-title">Lottie animation</div>
           <button type="button" onClick={() => lottieFileRef.current?.click()}>
             Import Lottie (.json, .lottie)
