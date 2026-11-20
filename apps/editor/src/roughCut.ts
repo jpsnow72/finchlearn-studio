@@ -12,115 +12,44 @@
  * Source media is never rewritten, and the store commits each text edit
  * once, so one deletion is one step on the shared undo stack.
  *
- * TRANSCRIPT SEAM (compose note for #43): the transcript contract below
- * is the canonical ClipTranscript contract from the #43 ASR lane
- * (packages/media/src/transcript.ts, documented in that lane's
- * MANIFEST): the transcript lives on the clip object at
- * extensions["x-finch-studio"].transcript, word and segment times are
- * milliseconds into the SOURCE clip before any trim, and only a
- * transcript with status "ready" is trusted for editing. The #43 lane
- * had not landed on main when this lane was built, so the types and the
- * object read/write helpers are declared locally here, matching the
- * contract's shapes exactly. At compose time (#43 lands first, then
- * this lane) the seam is replaced with no behaviour change:
- *   - delete the local ClipTranscript / TranscriptWord /
- *     TranscriptSegment / TranscriptStatus declarations and import the
- *     types from "@finch-studio/media";
- *   - delete the local getObjectTranscript and re-export the one from
- *     apps/editor/src/transcription.ts (the #43 editor bridge), which
- *     reads the same extension slot with the same validation;
- *   - keep everything below the seam (sentences, mapping, cuts): it
- *     only depends on the contract shapes, not on where they came from.
+ * TRANSCRIPT SEAM (resolved when #43 landed): the transcript types
+ * are imported from "@finch-studio/media" (the canonical #43 contract,
+ * packages/media/src/transcript.ts) and the object read/write helpers
+ * are re-exported from apps/editor/src/transcription.ts (the #43
+ * editor bridge), reading the same extensions["x-finch-studio"]
+ * transcript slot with the same validation. The transcript lives on
+ * the clip object, word and segment times are milliseconds into the
+ * SOURCE clip before any trim, and only a transcript with status
+ * "ready" is trusted for editing. Everything below only depends on
+ * the contract shapes.
  */
 import { newVideoId } from "@finch-studio/animation";
-import type { AudioObject, CourseObject, Extensions, VideoObject } from "@finch-studio/core";
+import type { AudioObject, CourseObject, VideoObject } from "@finch-studio/core";
 import {
   getAudioClipMetadata,
   rippleDeleteAudioRegion,
 } from "./audioEditing";
+import type {
+  ClipTranscript,
+  TranscriptSegment,
+  TranscriptStatus,
+  TranscriptWord,
+} from "@finch-studio/media";
+
+export type {
+  ClipTranscript,
+  TranscriptSegment,
+  TranscriptStatus,
+  TranscriptWord,
+};
+export { getObjectTranscript, withObjectTranscript } from "./transcription";
 
 // ---------------------------------------------------------------------------
-// Transcript seam: the #43 contract shapes, declared locally (see header)
+// Transcript contract: types from @finch-studio/media, object helpers
+// re-exported from ./transcription (the #43 editor bridge)
 // ---------------------------------------------------------------------------
-
-export type TranscriptStatus =
-  | "none"
-  | "queued"
-  | "transcribing"
-  | "ready"
-  | "failed";
-
-/** One recognized word. Times are milliseconds into the SOURCE clip
- * (before any timeline trim), per the #43 contract. */
-export interface TranscriptWord {
-  word: string;
-  startMs: number;
-  endMs: number;
-  confidence?: number;
-}
-
-/** A group of consecutive words, usually one utterance or sentence. */
-export interface TranscriptSegment {
-  id: string;
-  startMs: number;
-  endMs: number;
-  text: string;
-  speaker?: string;
-  confidence?: number;
-  wordStartIndex: number;
-  wordEndIndex: number;
-}
-
-/** The canonical transcript for one clip (#43 contract). */
-export interface ClipTranscript {
-  version: 1;
-  status: TranscriptStatus;
-  clipId: string;
-  r2Key?: string;
-  contentHash: string;
-  engine: string;
-  language?: string;
-  durationMs?: number;
-  words: TranscriptWord[];
-  segments: TranscriptSegment[];
-  text: string;
-  updatedAt: string;
-  createdAt?: string;
-  error?: string;
-  attempts?: number;
-}
 
 const TRANSCRIPT_EXTENSION = "x-finch-studio";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** The transcript stored on a clip object, or null. Mirrors the #43
- * editor bridge (apps/editor/src/transcription.ts) exactly: same slot,
- * same minimum validation. Replaced by that helper at compose time. */
-export function getObjectTranscript(object: CourseObject): ClipTranscript | null {
-  const raw = object.extensions?.[TRANSCRIPT_EXTENSION]?.transcript;
-  if (!isRecord(raw)) return null;
-  if (typeof raw.clipId !== "string" || typeof raw.contentHash !== "string") return null;
-  if (!Array.isArray(raw.words)) return null;
-  return raw as unknown as ClipTranscript;
-}
-
-/** Return a copy of the object with its transcript stored (or cleared
- * with null), preserving all other x-finch-studio metadata. Mirrors
- * the #43 editor bridge; replaced by it at compose time. */
-export function withObjectTranscript(
-  object: CourseObject,
-  transcript: ClipTranscript | null,
-): CourseObject {
-  const extensions: Extensions = { ...(object.extensions ?? {}) };
-  const meta: Record<string, unknown> = { ...(extensions[TRANSCRIPT_EXTENSION] ?? {}) };
-  if (transcript === null) delete meta.transcript;
-  else meta.transcript = transcript;
-  extensions[TRANSCRIPT_EXTENSION] = meta;
-  return { ...object, extensions } as CourseObject;
-}
 
 /** Clips that can carry speech and therefore a rough cut: audio clips
  * and video footage. Mirrors isTranscribableObject in the #43 bridge. */
