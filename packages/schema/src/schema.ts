@@ -29,7 +29,7 @@ export const STUDIO_SCHEMA_VERSION = 1 as const;
 export interface AssetRef {
   /** Object key in R2, for example u/{owner}/{project}/{asset}. */
   r2Key: string;
-  kind: "video" | "audio" | "image";
+  kind: "video" | "audio" | "image" | "lottie";
   sha256?: string;
   width?: number;
   height?: number;
@@ -383,6 +383,30 @@ export interface AudioElement extends ElementBase {
   role: "voice" | "music" | "sfx" | "description";
 }
 
+/**
+ * Lottie animated element (issues #97, #99, #100): a first class timed
+ * stage element, moved, scaled, rotated, and timed through ElementBase
+ * like every other element. Exactly one source is expected:
+ * - `packId`: an entry in the built in Generative Icons pack.
+ * - `asset`: a Lottie file (.json or .lottie) stored as an R2 asset.
+ * - `dataUri`: the file carried inline as a data URI (user imports).
+ * `animationData` may carry the parsed animation JSON inline instead
+ * of a file reference, so an imported project stays self contained.
+ * Playback samples the Lottie timeline from the scene clock through
+ * the shared deterministic renderer, never from wall clock time.
+ */
+export interface LottieElement extends ElementBase {
+  kind: "lottie";
+  packId?: string;
+  asset?: AssetRef;
+  dataUri?: string;
+  animationData?: Record<string, unknown>;
+  /** Recolor overrides keyed by shared color slot id, hex values. */
+  colors?: Record<string, string>;
+  loop?: boolean;
+  speed?: number;
+}
+
 export type SceneElement =
   | FootageElement
   | CharacterElement
@@ -390,7 +414,8 @@ export type SceneElement =
   | TextElement
   | ChartElement
   | ShapeElement
-  | AudioElement;
+  | AudioElement
+  | LottieElement;
 
 export interface StudioScene {
   id: string;
@@ -539,6 +564,28 @@ export function validateStudioProject(p: StudioProject): string[] {
             problems.push(
               `Element "${el.id}" has a colour correction ${key} outside ${COLOR_CORRECTION_MIN} to ${COLOR_CORRECTION_MAX}.`,
             );
+          }
+        }
+      }
+      if (el.kind === "lottie") {
+        if (!el.packId && !el.asset?.r2Key && !el.dataUri && !el.animationData) {
+          problems.push(`Lottie element "${el.id}" needs a packId, an asset, a dataUri, or animationData.`);
+        }
+        if (el.asset && el.asset.kind !== "lottie") {
+          problems.push(`Lottie element "${el.id}" asset kind must be "lottie".`);
+        }
+        if (el.speed !== undefined && !(el.speed > 0)) {
+          problems.push(`Lottie element "${el.id}" needs a positive speed.`);
+        }
+        for (const [slot, value] of Object.entries(el.colors ?? {})) {
+          if (!/^#[0-9a-fA-F]{6}$/.test(value)) {
+            problems.push(`Lottie element "${el.id}" color slot "${slot}" must be a hex color like #00deb3.`);
+          }
+        }
+        if (el.animationData !== undefined) {
+          const data = el.animationData as { fr?: unknown; layers?: unknown };
+          if (typeof data.fr !== "number" || !Array.isArray(data.layers)) {
+            problems.push(`Lottie element "${el.id}" animationData is not a Lottie animation (needs fr and layers).`);
           }
         }
       }

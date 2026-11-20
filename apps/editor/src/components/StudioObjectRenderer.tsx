@@ -8,8 +8,18 @@
  * SceneTimeContext), on the standard skeleton and the approved
  * Direction A and B style families.
  */
-import { useContext, useEffect, useRef, type CSSProperties } from "react";
-import type { CharacterObject, CourseObject, VideoObject } from "@finch-studio/core";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import type { CharacterObject, CourseObject, LottieObject, VideoObject } from "@finch-studio/core";
+import {
+  quantizeMsToFps,
+  renderLottieSvg,
+  type LottieAnimationData,
+} from "../lottie/lottieCore";
+import {
+  getCachedLottieAnimation,
+  lottieLocalMs,
+  preloadLottieAnimation,
+} from "../lottie/lottieObject";
 import { footageSourceAt } from "@finch-studio/schema";
 import {
   footageClipStartMs,
@@ -252,6 +262,62 @@ function TextView({ object }: { object: CourseObject }) {
   );
 }
 
+/**
+ * Lottie view (issues #97, #100): renders the shared deterministic
+ * renderer's SVG for the current scene clock time, quantized to the
+ * export frame rate (30 fps) so the stage shows exactly the frames the
+ * export paths will draw. The animation data loads once through the
+ * shared loader; while it loads, or if it fails, the object shows an
+ * honest placeholder instead of a fake frame.
+ */
+export const LOTTIE_EXPORT_FPS = 30;
+
+function LottieView({ object }: { object: LottieObject }) {
+  const tMs = useContext(SceneTimeContext);
+  const [anim, setAnim] = useState<LottieAnimationData | undefined>(() =>
+    getCachedLottieAnimation(object),
+  );
+  const [failed, setFailed] = useState(false);
+  const sourceKey = object.animationData
+    ? "inline"
+    : (object.packId ?? object.resource ?? "");
+  useEffect(() => {
+    const cached = getCachedLottieAnimation(object);
+    if (cached) {
+      setAnim(cached);
+      return;
+    }
+    let live = true;
+    preloadLottieAnimation(object)
+      .then((loaded) => {
+        if (live) setAnim(loaded);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [object.id, sourceKey]);
+  if (failed) return <div className="studio-placeholder">Lottie file could not be loaded</div>;
+  if (!anim) return <div className="studio-placeholder">Loading animation</div>;
+  const localMs = quantizeMsToFps(lottieLocalMs(object, tMs ?? 0), LOTTIE_EXPORT_FPS);
+  const svg = renderLottieSvg(anim, localMs, {
+    colors: object.colors,
+    loop: object.loop,
+    speed: object.speed,
+  });
+  return (
+    <div
+      style={{ width: "100%", height: "100%" }}
+      aria-label={object.name ?? "Lottie animation"}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+
 export function StudioObjectRenderer({
   object,
   drawOn,
@@ -262,6 +328,8 @@ export function StudioObjectRenderer({
   switch (object.type) {
     case "character":
       return <CharacterView object={object} />;
+    case "lottie":
+      return <LottieView object={object as LottieObject} />;
     case "video":
       return <FootageView object={object as VideoObject} />;
     case "text":

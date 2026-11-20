@@ -2,7 +2,8 @@
  * OCF mapping (issue #5): StudioProject <-> OCF VideoProject.
  *
  * Scenes, durations, and transitions map directly. Elements with an OCF
- * scene object equivalent (text, image, footage as video, character, shape)
+ * scene object equivalent (text, image, footage as video, character, shape,
+ * lottie)
  * map to real OCF objects, with element timing carried in OCF Timing
  * (seconds) and position in OCF Position.
  *
@@ -44,6 +45,7 @@ import type {
   CuePoint,
   ImageObject,
   QuestionObject,
+  LottieObject,
   ShapeObject,
   TextObject,
   Trigger,
@@ -56,6 +58,7 @@ import type {
   CueMarker,
   DrawOnStyle,
   FootageElement,
+  LottieElement,
   SceneElement,
   StudioProject,
   StudioScene,
@@ -386,6 +389,20 @@ function elementToOCF(el: SceneElement): CourseObject | null {
         fill: el.fill,
         extensions: drawOnExtension(el),
       } satisfies ShapeObject;
+    case "lottie":
+      // Lottie maps to a real OCF object: every field the element
+      // carries fits on LottieObject, so the round trip stays lossless
+      // even without the sidecar.
+      return {
+        ...base,
+        type: "lottie",
+        resource: el.asset?.r2Key ?? el.dataUri,
+        packId: el.packId,
+        animationData: el.animationData,
+        colors: el.colors,
+        loop: el.loop,
+        speed: el.speed,
+      } satisfies LottieObject;
     case "chart":
     case "audio":
       return null; // carried by the sidecar only
@@ -518,6 +535,27 @@ function ocfToElement(obj: CourseObject): SceneElement | null {
         shape: s.shape === "polygon" ? "rect" : (s.shape ?? "rect"),
         fill: typeof s.fill === "string" ? s.fill : undefined,
       };
+    }
+    case "lottie": {
+      const l = obj as LottieObject;
+      const el: LottieElement = {
+        ...base,
+        kind: "lottie",
+        packId: l.packId,
+        dataUri:
+          l.resource && (l.resource.startsWith("data:") || l.resource.startsWith("http"))
+            ? l.resource
+            : undefined,
+        asset:
+          l.resource && !l.resource.startsWith("data:") && !l.resource.startsWith("http")
+            ? { r2Key: l.resource, kind: "lottie" }
+            : undefined,
+        animationData: l.animationData,
+        colors: l.colors,
+        loop: l.loop,
+        speed: l.speed,
+      };
+      return el;
     }
     default:
       return null;

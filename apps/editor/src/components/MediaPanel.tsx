@@ -5,12 +5,26 @@
  * (localStorage index + data URL) with no duplicate uploads by hash.
  * Placing an image stamps its provenance credit onto the object name.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CourseObject } from "@finch-studio/core";
 import type { MediaAsset } from "@finch-studio/media";
 import { useStudioStore, makeStudioImage } from "../store";
 import { RecordPanel } from "./RecordPanel";
 import { GenerateAssetPanel } from "./GenerateAssetPanel";
+import {
+  loadPackAnimation,
+  searchLottiePack,
+  makeBundledLottieObject,
+  type LottiePackEntry,
+} from "../lottie/lottiePack";
+import { renderLottieSvg } from "../lottie/lottieCore";
+import { loadLottieFromBytes } from "../lottie/dotLottie";
+import { makeImportedLottieObject } from "../lottie/lottieObject";
+import {
+  fetchGenerativeIconAnimation,
+  searchGenerativeIcons,
+  type GenerativeIconResult,
+} from "../lottie/generativeIcons";
 import {
   bundledBackgroundRef,
   bundledFamilyName,
@@ -81,8 +95,14 @@ export function MediaPanel() {
   const addObject = useStudioStore((s) => s.addObject);
   const insertObjectGroup = useStudioStore((s) => s.insertObjectGroup);
   const setSceneBackground = useStudioStore((s) => s.setSceneBackground);
-  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds" | "generate">("stock");
+  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds" | "generate" | "builtin" | "browse">("stock");
   const [bundledSearch, setBundledSearch] = useState("");
+  const [lottieSearch, setLottieSearch] = useState("");
+  const [browseQuery, setBrowseQuery] = useState("");
+  const [browseResults, setBrowseResults] = useState<GenerativeIconResult[] | null>(null);
+  const [browseError, setBrowseError] = useState("");
+  const [browseBusy, setBrowseBusy] = useState(false);
+  const lottieFileRef = useRef<HTMLInputElement>(null);
   const [mine, setMine] = useState<UserItem[]>(loadUserItems);
   const [groups, setGroups] = useState<SceneGroupPreset[]>(loadSceneGroups);
   const [groupName, setGroupName] = useState("");
@@ -144,6 +164,54 @@ export function MediaPanel() {
     setNote(`Uploaded and added "${file.name}".`);
   };
 
+  const onLottieUpload = async (file: File) => {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const anim = await loadLottieFromBytes(bytes);
+      addObject(makeImportedLottieObject(anim, file.name, "import"));
+      setNote(`Imported "${file.name}" as an animated Lottie object.`);
+    } catch (err) {
+      setNote(
+        err instanceof Error
+          ? `Could not import "${file.name}": ${err.message}`
+          : `Could not import "${file.name}".`,
+      );
+    }
+  };
+
+  const runBrowseSearch = async () => {
+    setBrowseBusy(true);
+    setBrowseError("");
+    try {
+      setBrowseResults(await searchGenerativeIcons(browseQuery));
+    } catch (err) {
+      // Honest failure: no local or invented results are substituted.
+      setBrowseResults(null);
+      setBrowseError(
+        err instanceof Error
+          ? `Browse could not reach Generative Icons: ${err.message}`
+          : "Browse could not reach Generative Icons.",
+      );
+    } finally {
+      setBrowseBusy(false);
+    }
+  };
+
+  const insertBrowseResult = async (result: GenerativeIconResult) => {
+    setBrowseBusy(true);
+    try {
+      const anim = await fetchGenerativeIconAnimation(result);
+      addObject(makeImportedLottieObject(anim, result.label, "generative-icons"));
+      setNote(`Added "${result.label}" from Generative Icons to the scene.`);
+    } catch (err) {
+      setBrowseError(
+        err instanceof Error ? err.message : `Could not add "${result.label}".`,
+      );
+    } finally {
+      setBrowseBusy(false);
+    }
+  };
+
   const items = tab === "stock" ? SAMPLE_STOCK : tab === "unsplash" ? SAMPLE_UNSPLASH : [];
   const matchingGroups = groups.filter((group) => {
     const query = groupSearch.trim().toLowerCase();
@@ -163,6 +231,8 @@ export function MediaPanel() {
         <button type="button" className={tab === "props" ? "active" : ""} onClick={() => setTab("props")}>Props</button>
         <button type="button" className={tab === "backgrounds" ? "active" : ""} onClick={() => setTab("backgrounds")}>Backgrounds</button>
         <button type="button" className={tab === "generate" ? "active" : ""} onClick={() => setTab("generate")}>Generate</button>
+        <button type="button" className={tab === "builtin" ? "active" : ""} onClick={() => setTab("builtin")}>Built-in</button>
+        <button type="button" className={tab === "browse" ? "active" : ""} onClick={() => setTab("browse")}>Browse</button>
       </div>
       {tab === "props" || tab === "backgrounds" ? (
         <div>
@@ -220,6 +290,79 @@ export function MediaPanel() {
           <p className="muted">Bundled with Studio. Original art, cleared for commercial use.</p>
         </div>
       ) : null}
+      {tab === "builtin" ? (
+        <div>
+          <input
+            type="search"
+            placeholder="Search built in animations"
+            aria-label="Search built in animations"
+            value={lottieSearch}
+            onChange={(e) => setLottieSearch(e.target.value)}
+          />
+          <div className="media-grid">
+            {searchLottiePack(lottieSearch).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="media-thumb prop-thumb"
+                title={`${item.name}, Generative Icons, MIT license. Animated Lottie object.`}
+                onClick={() => {
+                  addObject(makeBundledLottieObject(item));
+                  setNote(`Added "${item.name}" to the scene.`);
+                }}
+              >
+                <LottiePackThumb item={item} />
+                <span>{item.name}</span>
+              </button>
+            ))}
+            {searchLottiePack(lottieSearch).length === 0 && (
+              <p className="muted">No built in animations match your search.</p>
+            )}
+          </div>
+          <p className="muted">
+            Built in animated icons from Generative Icons, MIT license. Click to place one
+            as an animated object; it renders in preview and in exports.
+          </p>
+        </div>
+      ) : tab === "browse" ? (
+        <div>
+          <div className="lib-row">
+            <input
+              type="search"
+              placeholder="Search Generative Icons"
+              aria-label="Search Generative Icons"
+              value={browseQuery}
+              onChange={(e) => setBrowseQuery(e.target.value)}
+            />
+            <button type="button" onClick={() => void runBrowseSearch()} disabled={browseBusy}>
+              {browseBusy ? "Searching" : "Search"}
+            </button>
+          </div>
+          {browseError && <p className="muted" role="alert">{browseError}</p>}
+          {browseResults === null && !browseError && (
+            <p className="muted">Search the live Generative Icons catalogue and click a result to add it to the scene.</p>
+          )}
+          <div className="media-grid">
+            {(browseResults ?? []).map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                className="media-thumb"
+                title={result.description ?? result.label}
+                disabled={browseBusy}
+                onClick={() => void insertBrowseResult(result)}
+              >
+                <span>{result.label}</span>
+                {result.category && <span className="muted">{result.category}</span>}
+              </button>
+            ))}
+          </div>
+          {browseResults !== null && browseResults.length === 0 && !browseError && (
+            <p className="muted">No icons matched that search on Generative Icons.</p>
+          )}
+          <p className="muted">Live results from generativeicons.com, MIT license.</p>
+        </div>
+      ) : null}
       {tab === "stock" || tab === "unsplash" ? (
         <div className="media-grid">
           {items.map((a) => (
@@ -257,6 +400,26 @@ export function MediaPanel() {
               e.target.value = "";
             }}
           />
+          <div className="sub-title">Lottie animation</div>
+          <button type="button" onClick={() => lottieFileRef.current?.click()}>
+            Import Lottie (.json, .lottie)
+          </button>
+          <input
+            ref={lottieFileRef}
+            type="file"
+            accept=".json,.lottie,application/json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void onLottieUpload(f);
+              e.target.value = "";
+            }}
+          />
+          <p className="muted">
+            A Lottie file lands on the stage as a first class animated object you can move,
+            scale, rotate, and time like any other object. You can also drop a rendered
+            MP4 or MOV file in as a video object today.
+          </p>
         </div>
       ) : tab === "record" ? (
         <RecordPanel />
@@ -304,5 +467,35 @@ export function MediaPanel() {
       ) : null}
       {note && <p className="muted">{note}</p>}
     </div>
+  );
+}
+
+/**
+ * Animated thumbnail for a built in pack icon: one frame of the shared
+ * deterministic renderer, loaded through the same pack loader the
+ * stage uses. Falls back to the icon name while loading or on failure.
+ */
+function LottiePackThumb({ item }: { item: LottiePackEntry }) {
+  const [svg, setSvg] = useState("");
+  useEffect(() => {
+    let live = true;
+    loadPackAnimation(item)
+      .then((anim) => {
+        if (live) setSvg(renderLottieSvg(anim, 600, { loop: true }));
+      })
+      .catch(() => {
+        if (live) setSvg("");
+      });
+    return () => {
+      live = false;
+    };
+  }, [item]);
+  if (!svg) return <span aria-hidden="true">{item.name}</span>;
+  return (
+    <span
+      aria-hidden="true"
+      style={{ display: "block", width: 48, height: 48, margin: "0 auto" }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }

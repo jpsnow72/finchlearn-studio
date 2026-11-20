@@ -1,0 +1,249 @@
+{
+  "pack": "FinchLearn Studio built in Lottie pack (issue #100)",
+  "library": "Generative Icons",
+  "license": "MIT",
+  "licenseNote": "Every icon in this pack is from the Generative Icons library and is recorded as MIT licensed per the library API metadata, checked 2026-11-19.",
+  "icons": [
+    {
+      "id": "alarm-clock",
+      "file": "alarm-clock.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/alarm-clock.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "alarm-clock-strong"
+    },
+    {
+      "id": "arrow-left",
+      "file": "arrow-left.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/arrow-left.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "arrow-left-strong"
+    },
+    {
+      "id": "arrow-right",
+      "file": "arrow-right.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/arrow-right.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "arrow-right-strong"
+    },
+    {
+      "id": "arrow-up",
+      "file": "arrow-up.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/arrow-up.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "arrow-up-strong"
+    },
+    {
+      "id": "ask-question",
+      "file": "ask-question.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/ask-question.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "ask-question-strong"
+    },
+    {
+      "id": "banner-alert",
+      "file": "banner-alert.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/banner-alert.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "banner-alert-strong"
+    },
+    {
+      "id": "bell",
+      "file": "bell.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/bell.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "bell-strong"
+    },
+    {
+      "id": "brainstorm",
+      "file": "brainstorm.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/brainstorm.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "brainstorm-strong"
+    },
+    {
+      "id": "calendar",
+      "file": "calendar.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/calendar.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "calendar-strong"
+    },
+    {
+      "id": "camera",
+      "file": "camera.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/camera.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "camera-strong"
+    },
+    {
+      "id": "chat-widget",
+      "file": "chat-widget.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/chat-widget.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "chat-widget-strong"
+    },
+    {
+      "id": "clock",
+      "file": "clock.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/clock.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "clock-strong"
+    },
+    {
+      "id": "confetti",
+      "file": "confetti.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/confetti.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "confetti-strong"
+    },
+    {
+      "id": "download",
+      "file": "download.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/download.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "download-strong"
+    },
+    {
+      "id": "export-file",
+      "file": "export-file.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/export-file.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "export-file-strong"
+    },
+    {
+      "id": "heart",
+      "file": "heart.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/heart.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "heart-strong"
+    },
+    {
+      "id": "lightbulb",
+      "file": "lightbulb.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/lightbulb.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "lightbulb-strong"
+    },
+    {
+      "id": "message",
+      "file": "message.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/message.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "message-strong"
+    },
+    {
+      "id": "microphone",
+      "file": "microphone.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/microphone.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "microphone-strong"
+    },
+    {
+      "id": "play-pause",
+      "file": "play-pause.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/play-pause.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "play-pause-strong"
+    },
+    {
+      "id": "quiz",
+      "file": "quiz.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/quiz.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "quiz-strong"
+    },
+    {
+      "id": "star-rating",
+      "file": "star-rating.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/star-rating.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "star-rating-strong"
+    },
+    {
+      "id": "star",
+      "file": "star.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/star.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "star-strong"
+    },
+    {
+      "id": "trophy",
+      "file": "trophy.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/trophy.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "trophy-strong"
+    },
+    {
+      "id": "video-call",
+      "file": "video-call.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/video-call.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "video-call-strong"
+    },
+    {
+      "id": "warning",
+      "file": "warning.lottie",
+      "license": "MIT",
+      "source": "https://generativeicons.com/assets/warning.lottie",
+      "library": "Generative Icons (LottieFiles)",
+      "libraryUrl": "https://generativeicons.com",
+      "animationId": "warning-strong"
+    }
+  ],
+  "blocked": [
+    {
+      "id": "receipt-confirmed",
+      "license": "MIT (not bundled)",
+      "reason": "Not in the Generative Icons catalogue: GET /assets/receipt-confirmed.lottie returns 404 and GET /api/icons/receipt-confirmed returns not_found. Nearest catalogue ids are receipt and order-confirmed; neither was substituted."
+    }
+  ]
+}
