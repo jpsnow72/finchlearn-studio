@@ -511,7 +511,8 @@ export type AnimationPresetName =
   | "chartStingSweep"
   | "typewriterReveal"
   | "wordReveal"
-  | "lineReveal";
+  | "lineReveal"
+  | "float";
 
 /** A named engine preset with its authored delay and duration. */
 export interface AnimationPreset {

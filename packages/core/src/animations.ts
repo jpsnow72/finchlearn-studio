@@ -24,6 +24,14 @@ import type {
   CharacterWaypoint,
   EasingName,
 } from "./types.js";
+import {
+  effectVariantCategory,
+  getEffect,
+  getEffectVariant,
+  listEffectVariants,
+  type EffectTrackRecipe,
+  type EffectVariantEntry,
+} from "./effects.js";
 
 /** Default track duration (ms) when `duration` is omitted. */
 export const DEFAULT_TRACK_DURATION_MS = 600;
@@ -36,6 +44,8 @@ export const EASING_NAMES: readonly EasingName[] = [
   "easeOut",
   "easeInOut",
   "bounce",
+  "pulse",
+  "shake",
 ] as const;
 
 export const ANIMATABLE_PROPERTIES: readonly AnimatableProperty[] = [
@@ -50,45 +60,46 @@ export const ANIMATABLE_PROPERTIES: readonly AnimatableProperty[] = [
   "wipeDown",
 ] as const;
 
+/**
+ * The Studio picker groups, mapped from the Shared Effects Core
+ * registry taxonomy (effects.ts, issue #111): registry entrance and
+ * text variants sit in Enter, exits in Exit, emphasis in Emphasis,
+ * and motion plus continuous variants in Motion (float always lived
+ * in the Studio motion package). The EffectsEditor in the editor app
+ * filters on exactly these four groups, so every registry variant
+ * stays reachable in its historical group.
+ */
+function pickerCategory(
+  entry: EffectVariantEntry,
+): "enter" | "exit" | "emphasis" | "motion" {
+  const category = effectVariantCategory(entry);
+  if (category === "exit") return "exit";
+  if (category === "emphasis") return "emphasis";
+  if (category === "motion" || category === "continuous") return "motion";
+  return "enter";
+}
+
+/**
+ * One-click preset list, derived from the Shared Effects Core registry
+ * (effects.ts, issue #111): every registry variant with a preset name,
+ * in registry order. The 32 historical Studio presets keep their
+ * names, labels, and picker groups; float joins them from the same
+ * single source of truth (it was previously only a motion package
+ * preset, not a core preset). The two fade hints adopt the registry
+ * wording (an arrow in place of the word "to"); no other label or
+ * hint changes.
+ */
 export const ANIMATION_PRESETS: ReadonlyArray<{
   name: AnimationPresetName;
   label: string;
   hint: string;
   category: "enter" | "exit" | "emphasis" | "motion";
-}> = [
-  { name: "fadeIn", label: "Fade in", hint: "Opacity 0 to 1", category: "enter" },
-  { name: "slideInLeft", label: "Slide in from left", hint: "Moves in from the left", category: "enter" },
-  { name: "slideInRight", label: "Slide in from right", hint: "Moves in from the right", category: "enter" },
-  { name: "slideInUp", label: "Slide in from bottom", hint: "Moves up into place", category: "enter" },
-  { name: "slideInDown", label: "Slide in from top", hint: "Moves down into place", category: "enter" },
-  { name: "popIn", label: "Pop in", hint: "Scales and fades into place", category: "enter" },
-  { name: "zoomIn", label: "Zoom in", hint: "Scales up into place", category: "enter" },
-  { name: "wipeInLeft", label: "Wipe in from left", hint: "Reveals from the left", category: "enter" },
-  { name: "wipeInRight", label: "Wipe in from right", hint: "Reveals from the right", category: "enter" },
-  { name: "wipeInUp", label: "Wipe in from top", hint: "Reveals from the top", category: "enter" },
-  { name: "wipeInDown", label: "Wipe in from bottom", hint: "Reveals from the bottom", category: "enter" },
-  { name: "bounce", label: "Bounce in", hint: "Drops in with a bounce", category: "enter" },
-  { name: "fadeOut", label: "Fade out", hint: "Opacity 1 to 0", category: "exit" },
-  { name: "slideOutLeft", label: "Slide out left", hint: "Moves off to the left", category: "exit" },
-  { name: "slideOutRight", label: "Slide out right", hint: "Moves off to the right", category: "exit" },
-  { name: "slideOutUp", label: "Slide out up", hint: "Moves off the top", category: "exit" },
-  { name: "slideOutDown", label: "Slide out down", hint: "Moves off the bottom", category: "exit" },
-  { name: "popOut", label: "Pop out", hint: "Scales and fades away", category: "exit" },
-  { name: "zoomOut", label: "Zoom out", hint: "Scales down and fades away", category: "exit" },
-  { name: "wipeOutLeft", label: "Wipe out left", hint: "Closes toward the left", category: "exit" },
-  { name: "wipeOutRight", label: "Wipe out right", hint: "Closes toward the right", category: "exit" },
-  { name: "wipeOutUp", label: "Wipe out up", hint: "Closes toward the top", category: "exit" },
-  { name: "wipeOutDown", label: "Wipe out down", hint: "Closes toward the bottom", category: "exit" },
-  { name: "emphasisPulse", label: "Pulse", hint: "Briefly grows and returns", category: "emphasis" },
-  { name: "emphasisShake", label: "Shake", hint: "Briefly shakes and returns", category: "emphasis" },
-  { name: "emphasisSpin", label: "Spin", hint: "Rotates once", category: "emphasis" },
-  { name: "kenBurns", label: "Ken Burns", hint: "Slow pan and zoom across a still", category: "motion" },
-  { name: "chartStingGrow", label: "Chart sting: grow", hint: "Chart reveals upward with a settle", category: "enter" },
-  { name: "chartStingSweep", label: "Chart sting: sweep", hint: "Chart sweeps in from the left", category: "enter" },
-  { name: "typewriterReveal", label: "Typewriter reveal", hint: "Text appears character by character", category: "enter" },
-  { name: "wordReveal", label: "Word by word reveal", hint: "Text appears word by word", category: "enter" },
-  { name: "lineReveal", label: "Line by line reveal", hint: "Text appears line by line", category: "enter" },
-];
+}> = listEffectVariants().map((entry) => ({
+  name: entry.variant.presetName as AnimationPresetName,
+  label: entry.variant.label,
+  hint: entry.variant.hint,
+  category: pickerCategory(entry),
+}));
 
 /** Easing functions map normalized progress to an interpolation weight. */
 export const EASINGS: Record<EasingName, (t: number) => number> = {
@@ -186,11 +197,21 @@ export interface KenBurnsFrame {
   y: number;
 }
 
-/** Default Ken Burns move: a slow push-in with a slight drift up and left. */
-export const DEFAULT_KEN_BURNS: { from: KenBurnsFrame; to: KenBurnsFrame } = {
-  from: { scale: 1, x: 0, y: 0 },
-  to: { scale: 1.15, x: -24, y: -12 },
-};
+/**
+ * Default Ken Burns move, from the registry's ken-burns entry: a slow
+ * push-in with a slight drift up and left. The values are identical
+ * to the framing Studio has always shipped.
+ */
+export const DEFAULT_KEN_BURNS: { from: KenBurnsFrame; to: KenBurnsFrame } = (() => {
+  const framing = getEffect("ken-burns")?.framing;
+  if (!framing) {
+    throw new Error("effects registry is missing the ken-burns framing");
+  }
+  return {
+    from: { ...framing.from },
+    to: { ...framing.to },
+  };
+})();
 
 export interface PresetOptions {
   /** Start time in ms. Defaults to 0. */
@@ -203,10 +224,77 @@ export interface PresetOptions {
   kenBurns?: { from: KenBurnsFrame; to: KenBurnsFrame };
 }
 
+/** Registry recipe value at the requested slide distance: the recipe
+ *  endpoints of magnitude 300 are the default distance, so they scale
+ *  to the requested distance; every other value passes through. */
+function atDistance(value: number, distance: number): number {
+  if (value === 300) return distance;
+  if (value === -300) return -distance;
+  return value;
+}
+
+function expandRecipeTrack(
+  recipe: EffectTrackRecipe,
+  preset: AnimationPresetName,
+  start: number,
+  duration: number,
+  distance: number,
+  kenBurns: { from: KenBurnsFrame; to: KenBurnsFrame },
+): AnimationTrack {
+  let from = recipe.from;
+  let to = recipe.to;
+  if (preset === "kenBurns") {
+    // The recipe endpoints are the default framing; authored framing
+    // replaces them per property (scale, x, y, in recipe order).
+    if (recipe.property === "scale") {
+      from = kenBurns.from.scale;
+      to = kenBurns.to.scale;
+    } else if (recipe.property === "x") {
+      from = kenBurns.from.x;
+      to = kenBurns.to.x;
+    } else if (recipe.property === "y") {
+      from = kenBurns.from.y;
+      to = kenBurns.to.y;
+    }
+  } else if (recipe.property === "x" || recipe.property === "y") {
+    from = atDistance(from, distance);
+    to = atDistance(to, distance);
+    if (preset === "bounce" && recipe.property === "y") {
+      // Historical drop formula, identical in both legacy copies:
+      // -max(80, distance / 3), which is -100 at the default 300.
+      from = -Math.max(80, distance / 3);
+    }
+  }
+  const track: AnimationTrack = {
+    property: recipe.property as AnimatableProperty,
+    from,
+    to,
+    start,
+    duration:
+      recipe.durationFixedMs ??
+      (recipe.durationMinMs !== undefined
+        ? Math.max(duration, recipe.durationMinMs)
+        : duration),
+  };
+  if (recipe.easing !== null) {
+    track.easing = recipe.easing as EasingName;
+  }
+  return track;
+}
+
 /**
- * Expand a one-click preset into timeline tracks (SPEC §7.7, rev 24).
+ * Expand a one-click preset into timeline tracks (SPEC §7.7, rev 24),
+ * driven by the Shared Effects Core registry (effects.ts, issue #111).
  * `x`/`y` tracks are offsets from the authored position, so no base
- * geometry is needed.
+ * geometry is needed. Every historical Studio preset expands to
+ * exactly the tracks it expanded to before the registry, so saved
+ * projects render identically. Kinetic text presets (typewriterReveal,
+ * wordReveal, lineReveal) expand to no tracks: no animatable property
+ * expresses per-unit text visibility, so the preset entry on the
+ * object is the marker and carries the reveal window (start and
+ * duration); the motion graphics toolkit expands the preset into a
+ * deterministic per-unit reveal schedule that the stage renderer and
+ * the export renderer sample identically.
  */
 export function expandAnimationPreset(
   preset: AnimationPresetName,
@@ -215,116 +303,12 @@ export function expandAnimationPreset(
   const start = opts.start ?? 0;
   const duration = opts.duration ?? DEFAULT_TRACK_DURATION_MS;
   const distance = opts.distance ?? 300;
-  const fadeIn = (): AnimationTrack => ({ property: "opacity", from: 0, to: 1, start, duration });
-  const fadeOut = (): AnimationTrack => ({ property: "opacity", from: 1, to: 0, start, duration });
-  switch (preset) {
-    case "fadeIn":
-      return [fadeIn()];
-    case "fadeOut":
-      return [fadeOut()];
-    case "slideInLeft":
-      return [
-        { property: "x", from: -distance, to: 0, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
-      ];
-    case "slideInRight":
-      return [
-        { property: "x", from: distance, to: 0, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
-      ];
-    case "slideInUp":
-      return [
-        { property: "y", from: distance, to: 0, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
-      ];
-    case "slideInDown":
-      return [
-        { property: "y", from: -distance, to: 0, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
-      ];
-    case "zoomIn":
-      return [
-        { property: "scale", from: 0.3, to: 1, start, duration },
-        fadeIn(),
-      ];
-    case "popIn":
-      return [
-        { property: "scale", from: 0.65, to: 1, start, duration, easing: "bounce" },
-        fadeIn(),
-      ];
-    case "bounce":
-      return [
-        {
-          property: "y",
-          from: -Math.max(80, distance / 3),
-          to: 0,
-          start,
-          duration: Math.max(duration, 800),
-          easing: "bounce",
-        },
-        { property: "opacity", from: 0, to: 1, start, duration: 300 },
-      ];
-    case "slideOutLeft":
-      return [{ property: "x", from: 0, to: -distance, start, duration }, fadeOut()];
-    case "slideOutRight":
-      return [{ property: "x", from: 0, to: distance, start, duration }, fadeOut()];
-    case "slideOutUp":
-      return [{ property: "y", from: 0, to: -distance, start, duration }, fadeOut()];
-    case "slideOutDown":
-      return [{ property: "y", from: 0, to: distance, start, duration }, fadeOut()];
-    case "popOut":
-      return [{ property: "scale", from: 1, to: 0.65, start, duration }, fadeOut()];
-    case "zoomOut":
-      return [{ property: "scale", from: 1, to: 0.3, start, duration }, fadeOut()];
-    case "wipeInLeft":
-    case "wipeInRight":
-    case "wipeInUp":
-    case "wipeInDown": {
-      const property = `wipe${preset.slice("wipeIn".length)}` as AnimatableProperty;
-      return [{ property, from: 0, to: 1, start, duration }];
-    }
-    case "wipeOutLeft":
-    case "wipeOutRight":
-    case "wipeOutUp":
-    case "wipeOutDown": {
-      const property = `wipe${preset.slice("wipeOut".length)}` as AnimatableProperty;
-      return [{ property, from: 1, to: 0, start, duration }];
-    }
-    case "emphasisPulse":
-      return [{ property: "scale", from: 1, to: 1.16, start, duration, easing: "pulse" }];
-    case "emphasisShake":
-      return [{ property: "rotation", from: 0, to: 8, start, duration, easing: "shake" }];
-    case "emphasisSpin":
-      return [{ property: "rotation", from: 0, to: 360, start, duration }];
-    case "kenBurns": {
-      const framing = opts.kenBurns ?? DEFAULT_KEN_BURNS;
-      return [
-        { property: "scale", from: framing.from.scale, to: framing.to.scale, start, duration, easing: "easeInOut" },
-        { property: "x", from: framing.from.x, to: framing.to.x, start, duration, easing: "easeInOut" },
-        { property: "y", from: framing.from.y, to: framing.to.y, start, duration, easing: "easeInOut" },
-      ];
-    }
-    case "chartStingGrow":
-      return [
-        { property: "wipeUp", from: 0, to: 1, start, duration },
-        { property: "scale", from: 0.96, to: 1, start, duration },
-      ];
-    case "chartStingSweep":
-      return [
-        { property: "wipeRight", from: 0, to: 1, start, duration },
-        { property: "opacity", from: 0, to: 1, start, duration },
-      ];
-    case "typewriterReveal":
-    case "wordReveal":
-    case "lineReveal":
-      // Kinetic text reveals are not transform tracks: no animatable
-      // property expresses per-unit text visibility. The preset entry on
-      // the object is the marker and carries the reveal window (start and
-      // duration); the motion graphics toolkit expands the preset into a
-      // deterministic per-unit reveal schedule that the stage renderer
-      // and the export renderer sample identically.
-      return [];
-  }
+  const kenBurns = opts.kenBurns ?? DEFAULT_KEN_BURNS;
+  const entry = getEffectVariant(preset);
+  if (!entry) return [];
+  return entry.variant.tracks.map((recipe) =>
+    expandRecipeTrack(recipe, preset, start, duration, distance, kenBurns),
+  );
 }
 
 /** Sample authored presets and optional keyframe tracks through one timeline. */
