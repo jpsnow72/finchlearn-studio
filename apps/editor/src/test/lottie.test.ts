@@ -184,7 +184,7 @@ describe("bundled pack catalogue integrity (#100)", () => {
   it("has about two dozen entries with unique ids", () => {
     expect(LOTTIE_PACK.length).toBeGreaterThanOrEqual(24);
     expect(new Set(LOTTIE_PACK.map((e) => e.id)).size).toBe(LOTTIE_PACK.length);
-    expect(searchLottiePack("arrow")).toHaveLength(3);
+    expect(searchLottiePack("arrow")).toHaveLength(4);
     expect(searchLottiePack("")).toHaveLength(LOTTIE_PACK.length);
   });
 

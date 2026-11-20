@@ -429,8 +429,6 @@ async function syncFootageVideos(
   await Promise.all(jobs);
 }
 
-}
-
 interface LottieFrames {
   frames: HTMLImageElement[];
   frameMs: number;
