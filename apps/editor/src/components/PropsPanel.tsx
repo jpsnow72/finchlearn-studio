@@ -4,7 +4,7 @@
  * Character: animation, facing, colors, waypoints (curve/speed), speech lines.
  * Text: content. Shape: fill. All: name, position/size.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AnimationPreset,
   AnimationPresetName,
@@ -14,6 +14,7 @@ import type {
   CharacterSpeech,
   CourseObject,
   KenBurnsFrame,
+  LottieObject,
 } from "@finch-studio/core";
 import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS, CHARACTER_ANIMATION_GROUPS, DEFAULT_KEN_BURNS } from "@finch-studio/core";
 import {
@@ -48,6 +49,12 @@ import {
 } from "../colorCorrection";
 import { drawOnForObject, whiteboardForScene } from "../drawOn";
 import type { WhiteboardHandStyle } from "@finch-studio/motion";
+import type { LottieColorSlot } from "../lottie/lottieCore";
+import {
+  getCachedLottieAnimation,
+  lottieSlotsForObject,
+  preloadLottieAnimation,
+} from "../lottie/lottieObject";
 
 let speechCounter = 0;
 
@@ -360,6 +367,12 @@ export function PropsPanel({
         />
       )}
       <MotionSections obj={obj} sceneObjects={scene?.objects ?? []} />
+      {obj.type === "lottie" && (
+        <LottieInspector
+          obj={obj as LottieObject}
+          onUpdate={(patch) => updateObject(obj.id, patch as never)}
+        />
+      )}
 
       <div className="danger-zone">
         <button type="button" onClick={() => removeObject(obj.id)}>
@@ -449,6 +462,92 @@ function ColorCorrectionSection({ object }: { object: CourseObject }) {
         gentle preset otherwise. Footage uses the preset until a preview
         frame is available.
       </p>
+    </>
+  );
+}
+/**
+ * Lottie inspector (issues #97, #100): the animation's shared color
+ * slots as color fields (one slot recolors the whole icon), plus loop
+ * and speed. Slots come from the pack catalogue for bundled icons and
+ * from the loaded animation for imports.
+ */
+function LottieInspector({
+  obj,
+  onUpdate,
+}: {
+  obj: LottieObject;
+  onUpdate: (patch: Partial<LottieObject>) => void;
+}) {
+  const [slots, setSlots] = useState<LottieColorSlot[]>(() => lottieSlotsForObject(obj));
+  useEffect(() => {
+    const immediate = lottieSlotsForObject(obj);
+    if (immediate.length > 0) {
+      setSlots(immediate);
+      return;
+    }
+    let live = true;
+    preloadLottieAnimation(obj)
+      .then((anim) => {
+        if (live) setSlots(lottieSlotsForObject(obj, anim));
+      })
+      .catch(() => {
+        if (live) setSlots([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [obj.id, obj.packId, obj.resource]);
+  const colors = obj.colors ?? {};
+  return (
+    <>
+      <div className="sub-title">Lottie animation</div>
+      {slots.length === 0 && (
+        <p className="muted">
+          {getCachedLottieAnimation(obj)
+            ? "This animation has no recolorable color slots."
+            : "Loading animation details."}
+        </p>
+      )}
+      <div className="field-row">
+        {slots.map((slot) => (
+          <label key={slot.id} className="color-field">
+            <span>{slot.label}</span>
+            <input
+              type="color"
+              value={
+                /^#[0-9a-fA-F]{6}$/.test(colors[slot.id] ?? "")
+                  ? (colors[slot.id] as string)
+                  : slot.defaultColor
+              }
+              onChange={(e) =>
+                onUpdate({ colors: { ...colors, [slot.id]: e.target.value } })
+              }
+            />
+          </label>
+        ))}
+      </div>
+      <label className="chk">
+        <input
+          type="checkbox"
+          checked={obj.loop !== false}
+          onChange={(e) => onUpdate({ loop: e.target.checked })}
+        />
+        Loop while on stage
+      </label>
+      <label className="field">
+        <span>Speed</span>
+        <input
+          type="number"
+          min={0.1}
+          step={0.1}
+          defaultValue={obj.speed ?? 1}
+          key={`${obj.id}-speed-${obj.speed ?? 1}`}
+          onBlur={(e) => {
+            const v = parseFloat(e.target.value);
+            if (!Number.isNaN(v) && v > 0) onUpdate({ speed: v });
+          }}
+        />
+      </label>
     </>
   );
 }

@@ -434,3 +434,77 @@ describe("project aspect (issue #13)", () => {
     expect(ocfToStudio(project).aspect).toBe("16:9");
   });
 });
+describe("lottie elements (#97, #99, #100)", () => {
+  function lottieProject(): StudioProject {
+    const p = makeStudioProject("Lottie demo");
+    p.scenes[0].elements.push(
+      {
+        kind: "lottie", id: "lot-1", startMs: 0, durationMs: 4000,
+        packId: "confetti", colors: { "color.primary": "#274690" },
+        loop: true, speed: 1, x: 100, y: 80, w: 160, h: 160,
+      },
+      {
+        kind: "lottie", id: "lot-2", startMs: 500, durationMs: 3000,
+        asset: { r2Key: "u/a/p/intro.lottie", kind: "lottie" },
+      },
+      {
+        kind: "lottie", id: "lot-3", startMs: 0, durationMs: 2000,
+        animationData: { fr: 60, ip: 0, op: 144, w: 32, h: 32, layers: [] },
+      },
+    );
+    return p;
+  }
+
+  it("validates pack, asset, and inline lottie elements", () => {
+    expect(validateStudioProject(lottieProject())).toEqual([]);
+  });
+
+  it("flags a lottie element with no source, a wrong asset kind, and a bad color", () => {
+    const p = lottieProject();
+    p.scenes[0].elements.push({ kind: "lottie", id: "lot-bad", startMs: 0, durationMs: 1000 });
+    const badAsset = p.scenes[0].elements[1];
+    if (badAsset.kind === "lottie" && badAsset.asset) badAsset.asset.kind = "image";
+    const badColor = p.scenes[0].elements[0];
+    if (badColor.kind === "lottie") badColor.colors = { "color.primary": "teal" };
+    const problems = validateStudioProject(p);
+    expect(problems.some((x) => x.includes("lot-bad") && x.includes("packId"))).toBe(true);
+    expect(problems.some((x) => x.includes('kind must be "lottie"'))).toBe(true);
+    expect(problems.some((x) => x.includes("hex color"))).toBe(true);
+  });
+
+  it("round trips losslessly with the sidecar", () => {
+    const p = lottieProject();
+    const { project, sidecar } = studioToOCF(p);
+    expect(ocfToStudio(project, sidecar)).toEqual(p);
+  });
+
+  it("round trips lottie elements without a sidecar through real OCF objects", () => {
+    const p = lottieProject();
+    const { project } = studioToOCF(p);
+    const lottieObjects = project.scenes[0].objects.filter((o) => o.type === "lottie");
+    expect(lottieObjects).toHaveLength(3);
+    const back = ocfToStudio(project);
+    expect(validateStudioProject(back)).toEqual([]);
+    const elements = back.scenes[0].elements.filter((e) => e.kind === "lottie");
+    expect(elements).toHaveLength(3);
+    const pack = elements.find((e) => e.id === "lot-1");
+    expect(pack).toMatchObject({
+      kind: "lottie",
+      packId: "confetti",
+      colors: { "color.primary": "#274690" },
+      loop: true,
+      speed: 1,
+    });
+    const asset = elements.find((e) => e.id === "lot-2");
+    expect(asset).toMatchObject({
+      kind: "lottie",
+      asset: { r2Key: "u/a/p/intro.lottie", kind: "lottie" },
+    });
+    const inline = elements.find((e) => e.id === "lot-3");
+    expect(inline).toMatchObject({
+      kind: "lottie",
+      animationData: { fr: 60, ip: 0, op: 144, w: 32, h: 32, layers: [] },
+    });
+  });
+});
+

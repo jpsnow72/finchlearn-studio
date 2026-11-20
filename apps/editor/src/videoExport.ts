@@ -28,6 +28,7 @@
 import type {
   CharacterObject,
   CourseObject,
+  LottieObject,
   VideoObject,
   VideoProject,
 } from "@finch-studio/core";
@@ -45,7 +46,13 @@ import {
   sampleKenBurns,
   transitionAlpha,
 } from "@finch-studio/animation";
-import { facingFromAngle, samplePath } from "@finch-studio/core";
+import { facingFromAngle, sampleAnimations, samplePath } from "@finch-studio/core";
+import {
+  lottieDurationMs,
+  lottieSvgDataUri,
+  renderLottieSvg,
+} from "./lottie/lottieCore";
+import { preloadLottieAnimation } from "./lottie/lottieObject";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -422,6 +429,92 @@ async function syncFootageVideos(
   await Promise.all(jobs);
 }
 
+}
+
+interface LottieFrames {
+  frames: HTMLImageElement[];
+  frameMs: number;
+}
+
+/**
+ * Pre-render every Lottie object as a frame set across one animation
+ * cycle at the export frame rate, sampled from scene time through the
+ * shared deterministic renderer (the same frames the stage shows).
+ * Both client export paths and the server render host use this, so a
+ * Lottie object cannot drift between preview and export.
+ */
+async function buildLottieSprites(project: VideoProject): Promise<Map<string, LottieFrames>> {
+  const out = new Map<string, LottieFrames>();
+  const jobs: Promise<void>[] = [];
+  for (const scene of project.scenes) {
+    for (const o of scene.objects) {
+      if (o.type !== "lottie") continue;
+      const obj = o as LottieObject;
+      jobs.push(
+        (async () => {
+          let anim: Awaited<ReturnType<typeof preloadLottieAnimation>>;
+          try {
+            anim = await preloadLottieAnimation(obj);
+          } catch {
+            return; // A dead Lottie source must not kill the whole export.
+          }
+          const speed = obj.speed !== undefined && obj.speed > 0 ? obj.speed : 1;
+          const cycleMs = lottieDurationMs(anim) / speed;
+          const frameMs = 1000 / FPS;
+          const count = Math.max(1, Math.ceil(cycleMs / frameMs));
+          const frames: HTMLImageElement[] = [];
+          for (let i = 0; i < count; i++) {
+            const svg = renderLottieSvg(anim, i * frameMs, {
+              colors: obj.colors,
+              loop: true,
+              speed: obj.speed,
+            });
+            const img = await loadSpriteImage(lottieSvgDataUri(svg));
+            if (!img) return;
+            frames.push(img);
+          }
+          out.set(obj.id, { frames, frameMs });
+        })(),
+      );
+    }
+  }
+  await Promise.all(jobs);
+  return out;
+}
+
+function drawLottie(
+  ctx: CanvasRenderingContext2D,
+  sprite: LottieFrames,
+  o: LottieObject,
+  tMs: number,
+): void {
+  const pos = o.position ?? {};
+  const w = pos.w ?? 200;
+  const h = pos.h ?? 200;
+  const startMs = (o.timing?.start ?? 0) * 1000;
+  const localMs = Math.max(0, tMs - startMs);
+  const rawIndex = Math.floor(localMs / sprite.frameMs);
+  const index =
+    o.loop === false
+      ? Math.min(sprite.frames.length - 1, rawIndex)
+      : rawIndex % sprite.frames.length;
+  const frame = sprite.frames[index];
+  if (!frame) return;
+  // Timeline animation tracks (move, scale, rotate, opacity) sample
+  // through the same engine the stage uses, so authored motion matches.
+  const sampled = sampleAnimations(o.animations, tMs);
+  ctx.save();
+  ctx.globalAlpha = sampled.opacity ?? 1;
+  const cx = (pos.x ?? 0) + w / 2 + (sampled.x ?? 0);
+  const cy = (pos.y ?? 0) + h / 2 + (sampled.y ?? 0);
+  ctx.translate(cx, cy);
+  if (sampled.rotation) ctx.rotate((sampled.rotation * Math.PI) / 180);
+  if (sampled.scale !== undefined && sampled.scale !== 1) ctx.scale(sampled.scale, sampled.scale);
+  ctx.drawImage(frame, -w / 2, -h / 2, w, h);
+  ctx.restore();
+}
+
+
 function drawObject(
   ctx: CanvasRenderingContext2D,
   sprites: Map<string, CharFrames>,
@@ -430,6 +523,7 @@ function drawObject(
   images?: Map<string, ImageSprite>,
   videos?: Map<string, HTMLVideoElement>,
   range?: { startMs: number; durationMs: number },
+  lottieSprites?: Map<string, LottieFrames>,
 ): void {
   if (o.visible === false) return;
   // Whiteboard draw-on (issue #52): the same pure sampler the stage
@@ -443,6 +537,11 @@ function drawObject(
   if (drawSample && !drawSample.visible) return;
   const drawTreatment = drawSample ? drawOnForObject(o) : undefined;
   switch (o.type) {
+    case "lottie": {
+      const sprite = lottieSprites?.get(o.id);
+      if (sprite) drawLottie(ctx, sprite, o as LottieObject, tMs);
+      break;
+    }
     case "video": {
       // Footage frame (issue #25): the element was synced to the
       // resolved source time for this frame; draw it through the crop
@@ -1036,6 +1135,7 @@ export async function renderProjectSceneFrames(
       if (sprite) sprites.set(c.id, sprite);
     }),
   );
+  const lottieSprites = await buildLottieSprites(project);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -1071,7 +1171,7 @@ export async function renderProjectSceneFrames(
     for (const o of scene.objects) {
       const range = timelineClipRange(o, scene.durationMs);
       if (localT >= range.startMs && localT < range.startMs + range.durationMs) {
-        drawObject(ctx, sprites, o, localT);
+        drawObject(ctx, sprites, o, localT, undefined, undefined, undefined, lottieSprites);
       }
     }
     ctx.restore();
@@ -1122,6 +1222,7 @@ export async function exportVideoProject(
     }),
   );
   const imageSprites = await buildImageSprites(project);
+  const lottieSprites = await buildLottieSprites(project);
   const footageVideos = await loadFootageVideos(project);
 
   const canvas = document.createElement("canvas");
@@ -1227,7 +1328,7 @@ export async function exportVideoProject(
         localT < range.startMs + range.durationMs &&
         isMulticamObjectVisibleAt(scene, o, localT)
       ) {
-        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range);
+        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range, lottieSprites);
       }
     }
     target.restore();
@@ -1354,6 +1455,7 @@ export async function exportMp4Project(
     }),
   );
   const imageSprites = await buildImageSprites(project);
+  const lottieSprites = await buildLottieSprites(project);
   const footageVideos = await loadFootageVideos(project);
 
   const canvas = document.createElement("canvas");
@@ -1396,7 +1498,7 @@ export async function exportMp4Project(
         localT < range.startMs + range.durationMs &&
         isMulticamObjectVisibleAt(scene, o, localT)
       ) {
-        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range);
+        drawObject(target, sprites, o, localT, imageSprites.objects, footageVideos, range, lottieSprites);
       }
     }
     target.restore();

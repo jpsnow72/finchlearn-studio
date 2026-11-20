@@ -284,7 +284,8 @@ export type ObjectType =
   | "slider"
   | "dial"
   | "character"
-  | "video-scene";
+  | "video-scene"
+  | "lottie";
 
 export type Color = string; // #rgb or #rrggbb — validated by schema pattern
 
@@ -707,6 +708,38 @@ export interface VideoProject {
 export interface VideoSceneObject extends ObjectBase {
   type: "video-scene";
   videoProject: VideoProject;
+}
+
+/**
+ * Lottie animated object (Studio issues #97, #99, #100). A first class
+ * stage object: it moves, scales, rotates, and times like any other
+ * object through the shared ObjectBase position, timing, and timeline
+ * animation fields. Playback is deterministic: the shared renderer
+ * samples the Lottie timeline from the scene clock, never wall clock.
+ *
+ * Source, exactly one of:
+ * - `packId`: an entry in the built in Generative Icons pack; the
+ *   animation data resolves from the bundled asset at render time.
+ * - `resource`: a URL or data URI for a .json or .lottie file.
+ * - `animationData`: the parsed Lottie animation JSON carried inline,
+ *   which is how user imports stay self contained in the project file.
+ */
+export interface LottieObject extends ObjectBase {
+  type: "lottie";
+  resource?: string;
+  packId?: string;
+  /** Parsed Lottie animation JSON (a plain object with fr, ip, op, layers). */
+  animationData?: Record<string, unknown>;
+  /**
+   * Recolor overrides keyed by the animation's shared color slot id
+   * (for the bundled pack: "color.primary"), or by "paint:#rrggbb" for
+   * imported files whose paints carry no slot id. Values are hex colors.
+   */
+  colors?: Record<string, string>;
+  /** Loop the animation while the object is on stage. Defaults to true. */
+  loop?: boolean;
+  /** Playback rate multiplier. Defaults to 1. */
+  speed?: number;
 }
 
 
@@ -1360,7 +1393,8 @@ export type CourseObject =
   | SliderObject
   | DialObject
   | CharacterObject
-  | VideoSceneObject;
+  | VideoSceneObject
+  | LottieObject;
 
 // ---------------------------------------------------------------------------
 // Variables (SPEC §8)
