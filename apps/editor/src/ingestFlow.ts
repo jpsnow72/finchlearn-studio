@@ -120,57 +120,59 @@ export async function ingestVideoObjectByUrl(
     return { status: "failed", error: "ingest needs an https video URL" };
   }
 
-  let input: IngestInput | null = null;
-  const stamp = (state: IngestJobState, proxyUrl?: string) => {
-    if (!input) return;
-    let next = stampIngestState(object, input, state);
-    if (proxyUrl) next = stampIngestProxyUrl(next, proxyUrl);
-    updateObject(object.id, { extensions: next.extensions });
-  };
-
   try {
     const bytes = await d.fetchBytes(url);
     const contentHash = await d.hashBytes(bytes);
     const probed = await d.probe(url).catch(() => ({}) as ProbedVideoMedia);
-    input = {
+    const input: IngestInput = {
       sourceR2Key: `url-source/${contentHash}`,
-      sourceUrl: url,
       contentHash,
       kind: "video",
       ...(probed.width ? { width: probed.width } : {}),
       ...(probed.height ? { height: probed.height } : {}),
       ...(probed.durationMs ? { durationMs: probed.durationMs } : {}),
     };
-    const handle = await d.request(input);
-    if (!handle) return { status: "unconfigured" };
-    stamp({ status: "queued", attempts: 0, error: null, outputs: null });
-    let lastStatus = "queued";
-    const final = await d.poll(handle, {
-      intervalMs: 2000,
-      onStatus: (state) => {
-        // Stamp on transitions only, so polling never floods the
-        // project's undo history with identical records.
-        if (state.status !== lastStatus) {
-          lastStatus = state.status;
-          stamp(state);
-        }
-      },
-    });
-    if (final.status === "done" && final.outputs?.proxy) {
-      stamp(final, ingestArtefactUrl(handle, "proxy-720p.mp4"));
-      return { status: "done", jobId: handle.jobId };
-    }
-    stamp(final);
-    return { status: "failed", error: final.error ?? "the ingest job failed" };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    if (input) {
+    const stamp = (state: IngestJobState, proxyUrl?: string) => {
+      let next = stampIngestState(object, input, state);
+      if (proxyUrl) next = stampIngestProxyUrl(next, proxyUrl);
+      updateObject(object.id, { extensions: next.extensions });
+    };
+    try {
+      const handle = await d.request({ ...input, sourceUrl: url });
+      if (!handle) return { status: "unconfigured" };
+      stamp({ status: "queued", attempts: 0, error: null, outputs: null });
+      let lastStatus = "queued";
+      const final = await d.poll(handle, {
+        intervalMs: 2000,
+        onStatus: (state) => {
+          // Stamp on transitions only, so polling never floods the
+          // project's undo history with identical records.
+          if (state.status !== lastStatus) {
+            lastStatus = state.status;
+            stamp(state);
+          }
+        },
+      });
+      if (final.status === "done" && final.outputs?.proxy) {
+        stamp(final, ingestArtefactUrl(handle, "proxy-720p.mp4"));
+        return { status: "done", jobId: handle.jobId };
+      }
+      stamp(final);
+      return { status: "failed", error: final.error ?? "the ingest job failed" };
+    } catch (err) {
       try {
-        stamp({ status: "failed", attempts: 0, error, outputs: null });
+        stamp({
+          status: "failed",
+          attempts: 0,
+          error: err instanceof Error ? err.message : String(err),
+          outputs: null,
+        });
       } catch {
         // The failure outcome below already carries the news.
       }
+      throw err;
     }
-    return { status: "failed", error };
+  } catch (err) {
+    return { status: "failed", error: err instanceof Error ? err.message : String(err) };
   }
 }

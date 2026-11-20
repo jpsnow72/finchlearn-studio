@@ -176,7 +176,7 @@ function FootageView({ object }: { object: VideoObject }) {
   // the proxy artefact can no longer be loaded.
   const storedIngest = getStoredIngest(object);
   const preview = previewSourceFor({
-    originalUrl: object.resource,
+    originalUrl: object.resource ?? "",
     ingestOutputs: storedIngest?.outputs ?? null,
     proxyUrl: storedIngestProxyUrl(object),
   });
