@@ -10,7 +10,9 @@ export {
   EASING_NAMES,
   ANIMATABLE_PROPERTIES,
   ANIMATION_PRESETS,
+  DEFAULT_KEN_BURNS,
   CHARACTER_ANIMATIONS,
+  CHARACTER_ANIMATION_GROUPS,
   CHARACTER_IDS,
   DEFAULT_TRACK_DURATION_MS,
   DEFAULT_SCENE_DURATION_MS,
@@ -25,4 +27,4 @@ export {
   expandAnimationPreset,
   sceneDurationMs,
 } from "./animations.js";
-export type { SampledValues, PresetOptions, PathSample } from "./animations.js";
+export type { SampledValues, PresetOptions, PathSample, CharacterAnimationGroup, KenBurnsFrame } from "./animations.js";

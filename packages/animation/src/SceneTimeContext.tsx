@@ -10,6 +10,7 @@ import { createContext, useContext, type CSSProperties, type ReactNode } from "r
 import type { CourseObject } from "@finch-studio/core";
 import { mergeAnimatedStyle } from "./animatedStyle.js";
 import { timelineStyleFor } from "./animatedStyle.js";
+import { effectiveAnimationsForObject } from "./motionGraphics.js";
 
 /** Current scene time in ms, or null when timeline animation is off. */
 export const SceneTimeContext = createContext<number | null>(null);
@@ -28,7 +29,7 @@ export function useAnimatedObjectStyle(
 ): CSSProperties | undefined {
   const tMs = useContext(SceneTimeContext);
   if (tMs === null) return base;
-  const animations = object.animations;
+  const animations = effectiveAnimationsForObject(object);
   if (!animations?.presets?.length && !animations?.timeline?.length) return base;
   const delta = timelineStyleFor(animations, tMs);
   return mergeAnimatedStyle(base, delta);
@@ -49,7 +50,7 @@ export function WithObjectAnimation({
 }): ReactNode {
   const tMs = useContext(SceneTimeContext);
   if (tMs === null) return children(base);
-  const animations = object.animations;
+  const animations = effectiveAnimationsForObject(object);
   if (!animations?.presets?.length && !animations?.timeline?.length) return children(base);
   return children(mergeAnimatedStyle(base, timelineStyleFor(animations, tMs)));
 }

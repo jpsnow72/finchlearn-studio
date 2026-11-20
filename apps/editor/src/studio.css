@@ -389,6 +389,26 @@ input[type="range"] { accent-color: var(--accent); }
 .speech-bubble { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); width: max-content; max-width: 240px; background: rgba(255,255,255,0.97); color: #1e293b; border: 1.5px solid #94a3b8; border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.3; text-align: center; pointer-events: none; z-index: 5; }
 .speech-bubble::after { content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #94a3b8; }
 
+/* Custom character rigging wizard (issue #74) */
+.rigging-wizard .seg { flex-wrap: wrap; margin-bottom: 10px; }
+.rig-stage {
+  width: 100%; max-height: 340px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  touch-action: none;
+}
+.rig-preview {
+  display: flex; justify-content: center;
+  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 8px;
+}
+.rigging-wizard textarea { resize: vertical; }
+
 /* Left icon rail + flyout (Figma direction: matches the FinchLearn editor rail) */
 .studio-rail { display: flex; flex-direction: column; gap: 6px; width: 52px; flex: none; align-items: stretch; }
 .studio-rail button { height: 44px; font-size: 19px; border-radius: 10px; border: 1px solid var(--line, #333); background: transparent; cursor: pointer; }

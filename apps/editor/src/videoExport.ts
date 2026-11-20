@@ -37,7 +37,12 @@ import {
   resolveFootageObject,
 } from "./footageEditing";
 import {
+  getMotionMeta,
+  isMotionGraphicMeta,
+  kineticRevealForObject,
+  kineticVisibleText,
   projectTimeline,
+  sampleKenBurns,
   transitionAlpha,
 } from "@finch-studio/animation";
 import { facingFromAngle, samplePath } from "@finch-studio/core";
@@ -45,13 +50,16 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ACTION_NAMES,
+  CustomCharacterFigure,
   RiggedCharacter,
   characterForLegacyId,
   defWithColors,
+  isInteractionRoleAction,
   mouthAt,
   visemesFromText,
   type ActionName,
 } from "@finch-studio/characters";
+import { customDefOfObject } from "./customCharacters";
 import { timelineClipRange, timelineLaneForObject, characterVoiceId } from "./store";
 import {
   audioRoleForObject,
@@ -115,6 +123,7 @@ const CYCLE_MS = 2600;
 async function buildCharacterFrames(
   char: CharacterObject,
 ): Promise<CharFrames | null> {
+  const customDef = customDefOfObject(char);
   const def = defWithColors(characterForLegacyId(char.characterId), char.colors);
   const action = studioActionFor(char.characterAnimation);
   const frames: HTMLImageElement[] = [];
@@ -125,14 +134,23 @@ async function buildCharacterFrames(
     const mouth = line?.text
       ? mouthAt(visemesFromText(line.text), t - line.start)
       : undefined;
-    const markup = renderToStaticMarkup(
-      createElement(RiggedCharacter, {
-        def,
-        action,
-        tMs: t,
-        ...(mouth ? { mouthOverride: mouth } : {}),
-      }),
-    );
+    const markup = customDef
+      ? renderToStaticMarkup(
+          createElement(CustomCharacterFigure, {
+            def: customDef,
+            action,
+            tMs: t,
+            ...(mouth ? { mouthOverride: mouth } : {}),
+          }),
+        )
+      : renderToStaticMarkup(
+          createElement(RiggedCharacter, {
+            def,
+            action,
+            tMs: t,
+            ...(mouth ? { mouthOverride: mouth } : {}),
+          }),
+        );
     const img = new Image();
     img.src =
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
@@ -174,7 +192,14 @@ function drawCharacter(
     ];
   if (!frame) return;
   ctx.save();
-  if (facing === "left") {
+  // Interaction role actions are authored pre-mirrored (each role's data
+  // already reaches the correct way), so the facing mirror is skipped for
+  // them; mirroring would move the reaching hand to the far side of the
+  // partner. The pair plan's facing stays semantic for those actions.
+  const mirror =
+    facing === "left" &&
+    !isInteractionRoleAction(studioActionFor(char.characterAnimation));
+  if (mirror) {
     ctx.translate(x + w, y);
     ctx.scale(-1, 1);
     ctx.drawImage(frame, 0, 0, w, h);
@@ -450,11 +475,17 @@ function drawObject(
     }
     case "text": {
       const pos = o.position ?? {};
-      const text = stripHtml((o as { content?: string }).content ?? "");
+      const fullText = stripHtml((o as { content?: string }).content ?? "");
+      if (!fullText) break;
+      // Kinetic reveals and motion graphic colors sample the same
+      // toolkit functions the stage renderer uses (frame parity).
+      const reveal = kineticRevealForObject(o, fullText);
+      const text = reveal ? kineticVisibleText(reveal, tMs) : fullText;
       if (!text) break;
+      const textMeta = getMotionMeta(o);
       ctx.save();
       ctx.font = "22px system-ui, sans-serif";
-      ctx.fillStyle = "#1a1a1a";
+      ctx.fillStyle = isMotionGraphicMeta(textMeta) ? textMeta.params.textColor : "#1a1a1a";
       ctx.textBaseline = "top";
       const w = pos.w ?? 400;
       const h = pos.h ?? 96;
@@ -490,6 +521,25 @@ function drawObject(
       const pos = o.position ?? {};
       const w = pos.w ?? 200;
       const h = pos.h ?? 100;
+      const source = sprite.corrected ?? sprite.img;
+      const kbMeta = getMotionMeta(o);
+      if (kbMeta?.kind === "kenBurns") {
+        // Ken Burns: apply the sampled framing around the object center,
+        // the same values the stage applies as a CSS transform.
+        const preset = (o.animations?.presets ?? []).find((entry) => entry.name === "kenBurns");
+        const frame = sampleKenBurns(
+          { from: kbMeta.from, to: kbMeta.to },
+          preset?.start ?? 0,
+          preset?.duration ?? (o.timing?.duration ? Math.round(o.timing.duration * 1000) : 6000),
+          tMs,
+        );
+        ctx.save();
+        ctx.translate((pos.x ?? 0) + w / 2 + frame.x, (pos.y ?? 0) + h / 2 + frame.y);
+        ctx.scale(frame.scale, frame.scale);
+        ctx.drawImage(source, -w / 2, -h / 2, w, h);
+        ctx.restore();
+        break;
+      }
       ctx.save();
       if (drawSample && drawSample.progress < 1) {
         const rect = wipeVisibleRect(drawSample.progress, w, h);
@@ -497,7 +547,6 @@ function drawObject(
         ctx.rect((pos.x ?? 0) + rect.x, (pos.y ?? 0) + rect.y, rect.w, rect.h);
         ctx.clip();
       }
-      const source = sprite.corrected ?? sprite.img;
       const iw = sprite.img.naturalWidth || w;
       const ih = sprite.img.naturalHeight || h;
       // objectFit: contain, matching the stage renderer.

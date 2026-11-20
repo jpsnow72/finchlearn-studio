@@ -17,6 +17,7 @@ import { TopBar } from "./components/TopBar";
 import { SceneManager } from "./components/SceneManager";
 import { StudioCanvas } from "./components/StudioCanvas";
 import { CharacterPicker } from "./components/CharacterPicker";
+import { RiggingWizard } from "./components/RiggingWizard";
 import { PropsPanel } from "./components/PropsPanel";
 import { DialoguePanel } from "./components/DialoguePanel";
 import { TranslatePanel } from "./components/TranslatePanel";
@@ -28,6 +29,7 @@ import { MulticamPanel } from "./components/MulticamPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
+import { MotionGraphicsPanel } from "./components/MotionGraphicsPanel";
 import { CaptionsPanel } from "./components/CaptionsPanel";
 import { Timeline } from "./components/Timeline";
 import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId, isVoiceoverClip } from "./store";
@@ -46,7 +48,7 @@ export function App() {
   const redo = useStudioStore((s) => s.redo);
 
   const [pathEdit, setPathEdit] = useState(false);
-  const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | "captions" | null>("characters");
+  const [flyout, setFlyout] = useState<"characters" | "media" | "templates" | "script" | "captions" | "rigging" | null>("characters");
   const clock = useSceneClock(scene?.durationMs ?? 5000, { loop: true });
   const dialogueRef = useRef(new DialoguePlayer({ provider: narrationTts }));
 
@@ -194,6 +196,7 @@ export function App() {
           <button type="button" className={flyout === "templates" ? "active" : ""} onClick={() => setFlyout(flyout === "templates" ? null : "templates")} title="Templates">📐</button>
           <button type="button" className={flyout === "script" ? "active" : ""} onClick={() => setFlyout(flyout === "script" ? null : "script")} title="Script import">📜</button>
           <button type="button" className={flyout === "captions" ? "active" : ""} onClick={() => setFlyout(flyout === "captions" ? null : "captions")} title="Captions" aria-label="Captions">CC</button>
+          <button type="button" className={flyout === "rigging" ? "active" : ""} onClick={() => setFlyout(flyout === "rigging" ? null : "rigging")} title="Custom character rigging" aria-label="Custom character rigging">🧍</button>
         </nav>
         {flyout && (
           <aside className="studio-left studio-flyout">
@@ -207,9 +210,15 @@ export function App() {
               </>
             )}
             {flyout === "media" && <MediaPanel />}
-            {flyout === "templates" && <TemplatesPanel />}
+            {flyout === "templates" && (
+              <>
+                <TemplatesPanel />
+                <MotionGraphicsPanel />
+              </>
+            )}
             {flyout === "script" && <ScriptImport />}
             {flyout === "captions" && <CaptionsPanel />}
+            {flyout === "rigging" && <RiggingWizard />}
           </aside>
         )}
         <main className="studio-center">

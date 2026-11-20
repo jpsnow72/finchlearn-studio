@@ -504,7 +504,13 @@ export type AnimationPresetName =
   | "wipeOutDown"
   | "emphasisPulse"
   | "emphasisShake"
-  | "emphasisSpin";
+  | "emphasisSpin"
+  | "kenBurns"
+  | "chartStingGrow"
+  | "chartStingSweep"
+  | "typewriterReveal"
+  | "wordReveal"
+  | "lineReveal";
 
 /** A named engine preset with its authored delay and duration. */
 export interface AnimationPreset {
@@ -554,7 +560,25 @@ export type CharacterAnimationName =
   | "nod"
   | "shake"
   | "sit"
-  | "stand";
+  | "stand"
+  // Motion library expansion (Studio issues #94 and #96): names resolve to
+  // the rigged actions of the same name in @finch-studio/characters.
+  | "run"
+  | "clap"
+  | "shrug"
+  | "thumbs-up"
+  | "celebrate"
+  | "laugh"
+  | "bow"
+  | "look-around"
+  // Two character interaction roles (issues #94 and #96): pair-applied
+  // through planInteraction in @finch-studio/characters, never offered in
+  // the single character picker; the names resolve to the rigged role
+  // actions of the same name.
+  | "handshake-right"
+  | "handshake-left"
+  | "high-five-right"
+  | "high-five-left";
 
 /** Which way the character faces. Auto-set from path direction while moving. */
 export type CharacterFacing = "left" | "right";

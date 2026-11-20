@@ -15,8 +15,15 @@ import {
   footageClipStartMs,
   resolveFootageObject,
 } from "../footageEditing";
-import { SceneTimeContext } from "@finch-studio/animation";
 import {
+  getMotionMeta,
+  isMotionGraphicMeta,
+  kineticRevealForObject,
+  kineticVisibleText,
+  SceneTimeContext,
+} from "@finch-studio/animation";
+import {
+  CustomCharacterFigure,
   RiggedCharacter,
   characterForLegacyId,
   defWithColors,
@@ -24,6 +31,7 @@ import {
   visemesFromText,
 } from "@finch-studio/characters";
 import { studioActionFor } from "../videoExport";
+import { customDefOfObject } from "../customCharacters";
 import { textDirectionOf } from "@finch-studio/translation";
 import { feColorMatrixValues } from "@finch-studio/schema";
 import {
@@ -98,6 +106,7 @@ function ShapeDrawOnView({
 function CharacterView({ object }: { object: CharacterObject }) {
   const tMs = useContext(SceneTimeContext);
   const dir = textDirectionOf(object);
+  const customDef = customDefOfObject(object);
   const def = defWithColors(characterForLegacyId(object.characterId), object.colors);
   const now = tMs ?? 0;
   const line = (object.speech ?? []).find(
@@ -108,13 +117,23 @@ function CharacterView({ object }: { object: CharacterObject }) {
     : undefined;
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
-      <RiggedCharacter
-        def={def}
-        action={studioActionFor(object.characterAnimation)}
-        tMs={now}
-        {...(mouth ? { mouthOverride: mouth } : {})}
-        style={{ width: "100%", height: "100%" }}
-      />
+      {customDef ? (
+        <CustomCharacterFigure
+          def={customDef}
+          action={studioActionFor(object.characterAnimation)}
+          tMs={now}
+          {...(mouth ? { mouthOverride: mouth } : {})}
+          style={{ width: "100%", height: "100%" }}
+        />
+      ) : (
+        <RiggedCharacter
+          def={def}
+          action={studioActionFor(object.characterAnimation)}
+          tMs={now}
+          {...(mouth ? { mouthOverride: mouth } : {})}
+          style={{ width: "100%", height: "100%" }}
+        />
+      )}
       {line?.text && (
         <div
           className="speech-bubble"
@@ -201,6 +220,38 @@ function stripHtml(html: string): string {
   return (div.textContent ?? "").trim();
 }
 
+function TextView({ object }: { object: CourseObject }) {
+  const tMs = useContext(SceneTimeContext);
+  const style: CSSProperties = {
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+    fontSize: 22,
+    lineHeight: 1.35,
+  };
+  const dir = textDirectionOf(object);
+  const meta = getMotionMeta(object);
+  if (isMotionGraphicMeta(meta)) style.color = meta.params.textColor;
+  // Kinetic text: render only the units whose reveal window has opened
+  // at the current scene time. The export renderer samples the same
+  // schedule, so stage and export show the same text at the same time.
+  const reveal = tMs !== null ? kineticRevealForObject(object, stripHtml((object as { content?: string }).content ?? "")) : null;
+  if (reveal) {
+    return (
+      <div style={{ ...style, whiteSpace: "pre-wrap" }} {...(dir ? { dir } : {})}>
+        {kineticVisibleText(reveal, tMs ?? 0)}
+      </div>
+    );
+  }
+  return (
+    <div
+      style={style}
+      {...(dir ? { dir } : {})}
+      dangerouslySetInnerHTML={{ __html: (object as { content?: string }).content ?? "" }}
+    />
+  );
+}
+
 export function StudioObjectRenderer({
   object,
   drawOn,
@@ -213,23 +264,8 @@ export function StudioObjectRenderer({
       return <CharacterView object={object} />;
     case "video":
       return <FootageView object={object as VideoObject} />;
-    case "text": {
-      const style: CSSProperties = {
-        width: "100%",
-        height: "100%",
-        overflow: "hidden",
-        fontSize: 22,
-        lineHeight: 1.35,
-      };
-      const dir = textDirectionOf(object);
-      return (
-        <div
-          style={style}
-          {...(dir ? { dir } : {})}
-          dangerouslySetInnerHTML={{ __html: object.content ?? "" }}
-        />
-      );
-    }
+    case "text":
+      return <TextView object={object} />;
     case "shape": {
       if (drawOn && drawOn.sample.progress < 1) {
         return <ShapeDrawOnView object={object} drawOn={drawOn} />;
