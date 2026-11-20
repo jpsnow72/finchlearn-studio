@@ -65,15 +65,23 @@ describe("motion library expansion: solo motions (#94, #96)", () => {
   });
 
   it("the new motions actually move (poses differ across the cycle)", () => {
+    // Sample across the whole cycle and require real pose range: a
+    // two-point probe at 30/70 percent is degenerate for symmetric
+    // periodic motions (clap peaks at 25 and 75 percent with a trough
+    // at 50, so those two samples coincide even though it moves).
     for (const name of NEW_SOLO) {
       const def = ACTIONS[name];
-      const a = sampleAction(def, def.durationMs * 0.3);
-      const b = sampleAction(def, def.durationMs * 0.7);
-      const moved = BONE_IDS.some(
-        (bone) =>
-          Math.abs(a[bone].rotate - b[bone].rotate) > 0.01 ||
-          Math.abs(a[bone].dy - b[bone].dy) > 0.01,
+      const samples = [0, 0.25, 0.5, 0.75, 1].map((f) =>
+        sampleAction(def, def.durationMs * f),
       );
+      const moved = BONE_IDS.some((bone) => {
+        const rotates = samples.map((s) => s[bone].rotate);
+        const dys = samples.map((s) => s[bone].dy);
+        return (
+          Math.max(...rotates) - Math.min(...rotates) > 0.01 ||
+          Math.max(...dys) - Math.min(...dys) > 0.01
+        );
+      });
       expect(moved, name).toBe(true);
     }
   });

@@ -38,7 +38,6 @@ import {
   INTERACTION_NAMES,
   isInteractionRoleAction,
 } from "@finch-studio/characters";
-import type { CourseObject } from "@finch-studio/core";
 import {
   NEUTRAL_COLOR_CORRECTION,
   computeAutoFixForObject,

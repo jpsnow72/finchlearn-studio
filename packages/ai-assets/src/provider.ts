@@ -107,7 +107,7 @@ export const ASSET_NOT_CONFIGURED_MESSAGE =
 export class UnconfiguredAssetProvider implements AssetGenerationProvider {
   readonly providerId = "unconfigured";
   readonly isConfigured = false;
-  async generate(): Promise<GeneratedImageResult> {
+  async generate(_request: GenerateAssetRequest): Promise<GeneratedImageResult> {
     throw new AssetGenerationNotConfiguredError(ASSET_NOT_CONFIGURED_MESSAGE);
   }
 }

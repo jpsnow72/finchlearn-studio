@@ -254,7 +254,6 @@ describe("re-derivation preserves pin adjustments (#74)", () => {
       ...detected,
       wristL: { x: detected.wristL.x + 0.05, y: detected.wristL.y - 0.03 },
     };
-    const base = buildCharacter("custom-2", "Moved", {});
     const rig = buildRig({
       sourceKind: "single-png",
       pins: userPins,

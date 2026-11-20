@@ -81,7 +81,7 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-interface Measured {
+interface Measure {
   content: { left: number; top: number; right: number; bottom: number };
   separation: number;
   hasTransparency: boolean;
