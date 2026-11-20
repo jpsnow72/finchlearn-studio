@@ -28,3 +28,21 @@ export {
   sceneDurationMs,
 } from "./animations.js";
 export type { SampledValues, PresetOptions, PathSample, CharacterAnimationGroup, KenBurnsFrame } from "./animations.js";
+export {
+  EFFECTS,
+  EFFECTS_REGISTRY_BODY,
+  EFFECT_CATEGORIES,
+  getEffect,
+  getEffectVariant,
+  listEffectVariants,
+  effectVariantCategory,
+} from "./effects.js";
+export type {
+  EffectCategory,
+  EffectVariantKind,
+  EffectTrackRecipe,
+  EffectVariant,
+  EffectDefinition,
+  EffectsRegistryBody,
+  EffectVariantEntry,
+} from "./effects.js";
