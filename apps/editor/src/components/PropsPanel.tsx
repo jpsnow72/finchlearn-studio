@@ -12,9 +12,32 @@ import type {
   CharacterFacing,
   CharacterObject,
   CharacterSpeech,
+  CourseObject,
+  KenBurnsFrame,
 } from "@finch-studio/core";
-import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS } from "@finch-studio/core";
+import { ANIMATION_PRESETS, CHARACTER_ANIMATIONS, CHARACTER_ANIMATION_GROUPS, DEFAULT_KEN_BURNS } from "@finch-studio/core";
+import {
+  applyKenBurns,
+  applyKineticText,
+  clearKenBurns,
+  clearKineticText,
+  getMotionMeta,
+  isKineticPresetName,
+  isMotionGraphicMeta,
+  motionGraphicGroupOf,
+  newVideoId,
+  rebuildMotionGraphic,
+  type KineticPresetName,
+  type MotionGraphicMeta,
+  type MotionGraphicParams,
+} from "@finch-studio/animation";
 import { useStudioStore, useCurrentScene, useSelectedObject } from "../store";
+import {
+  ACTION_CATALOGUE,
+  INTERACTIONS,
+  INTERACTION_NAMES,
+  isInteractionRoleAction,
+} from "@finch-studio/characters";
 import type { CourseObject } from "@finch-studio/core";
 import {
   NEUTRAL_COLOR_CORRECTION,
@@ -46,6 +69,7 @@ export function PropsPanel({
   const removeObject = useStudioStore((s) => s.removeObject);
   const setCharAnimation = useStudioStore((s) => s.setCharAnimation);
   const setCharFacing = useStudioStore((s) => s.setCharFacing);
+  const applyInteraction = useStudioStore((s) => s.applyInteraction);
   const setCharColors = useStudioStore((s) => s.setCharColors);
   const updateWaypoint = useStudioStore((s) => s.updateWaypoint);
   const removeWaypoint = useStudioStore((s) => s.removeWaypoint);
@@ -175,11 +199,22 @@ export function PropsPanel({
                 setCharAnimation(obj.id, e.target.value as CharacterAnimationName)
               }
             >
-              {CHARACTER_ANIMATIONS.map((a) => (
-                <option key={a.name} value={a.name} title={a.hint}>
-                  {a.label}
-                  {a.loops ? " (loops)" : ""}
+              {isInteractionRoleAction(char.characterAnimation) && (
+                <option value={char.characterAnimation} disabled>
+                  {ACTION_CATALOGUE.find((e) => e.name === char.characterAnimation)?.label ??
+                    char.characterAnimation}{" "}
+                  (two characters)
                 </option>
+              )}
+              {CHARACTER_ANIMATION_GROUPS.map((g) => (
+                <optgroup key={g.id} label={g.label}>
+                  {CHARACTER_ANIMATIONS.filter((a) => a.group === g.id).map((a) => (
+                    <option key={a.name} value={a.name} title={a.hint}>
+                      {a.label}
+                      {a.loops ? " (loops)" : ""}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>
@@ -198,6 +233,30 @@ export function PropsPanel({
               ))}
             </div>
           </div>
+          {(scene?.objects ?? []).some(
+            (o) => o.type === "character" && o.id !== obj.id,
+          ) && (
+            <div className="field">
+              <span>Two characters</span>
+              {INTERACTION_NAMES.map((name) => (
+                <div key={name} className="seg">
+                  {INTERACTIONS[name].orientations.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => applyInteraction(obj.id, name, o.id)}
+                    >
+                      {INTERACTIONS[name].label}: {o.label.toLowerCase()}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              <p className="muted small">
+                Applies the interaction to this character and the nearest
+                other character in the scene, moving the partner into place.
+              </p>
+            </div>
+          )}
           <div className="field-row">
             {(
               [
@@ -301,6 +360,7 @@ export function PropsPanel({
           object={obj}
         />
       )}
+      <MotionSections obj={obj} sceneObjects={scene?.objects ?? []} />
 
       <div className="danger-zone">
         <button type="button" onClick={() => removeObject(obj.id)}>
@@ -401,7 +461,7 @@ function EffectsEditor({
   presets: AnimationPreset[];
   onChange: (presets: AnimationPreset[]) => void;
 }) {
-  const [category, setCategory] = useState<"enter" | "exit" | "emphasis">("enter");
+  const [category, setCategory] = useState<"enter" | "exit" | "emphasis" | "motion">("enter");
   const [presetName, setPresetName] = useState<AnimationPresetName>("fadeIn");
   const choices = ANIMATION_PRESETS.filter((preset) => preset.category === category);
   const selectedPreset = choices.some((preset) => preset.name === presetName)
@@ -419,6 +479,7 @@ function EffectsEditor({
           <option value="enter">Enter</option>
           <option value="exit">Exit</option>
           <option value="emphasis">Emphasis</option>
+          <option value="motion">Motion</option>
         </select>
       </label>
       <div className="field-row">
@@ -627,5 +688,294 @@ function SpeechRow({
         <button type="button" onClick={onRemove} aria-label="Remove line">✕</button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Motion graphics (issues #98 and #99): group parameters, Ken Burns
+// framing, and kinetic text, all edited through the toolkit in
+// @finch-studio/animation so the inspector and the renderers agree.
+// ---------------------------------------------------------------------------
+
+function MotionSections({
+  obj,
+  sceneObjects,
+}: {
+  obj: CourseObject;
+  sceneObjects: CourseObject[];
+}) {
+  const meta = getMotionMeta(obj);
+  return (
+    <>
+      {isMotionGraphicMeta(meta) && (
+        <MotionGroupSection key={`group-${obj.id}`} obj={obj} meta={meta} sceneObjects={sceneObjects} />
+      )}
+      {(obj.type === "image" || obj.type === "video") && (
+        <KenBurnsSection key={`kb-${obj.id}`} obj={obj} />
+      )}
+      {obj.type === "text" && (
+        <KineticTextSection key={`kt-${obj.id}`} obj={obj} sceneObjects={sceneObjects} />
+      )}
+    </>
+  );
+}
+
+function MotionGroupSection({
+  meta,
+  sceneObjects,
+}: {
+  obj: CourseObject;
+  meta: MotionGraphicMeta;
+  sceneObjects: CourseObject[];
+}) {
+  const replaceObjectGroup = useStudioStore((s) => s.replaceObjectGroup);
+  const params = meta.params;
+  const commit = (patch: Partial<MotionGraphicParams>) => {
+    const group = motionGraphicGroupOf(sceneObjects, meta.groupId);
+    if (group.length === 0) return;
+    const next = rebuildMotionGraphic(group, { ...params, ...patch }, (role) =>
+      newVideoId(`mg-${role}`),
+    );
+    replaceObjectGroup(
+      group.map((object) => object.id),
+      next,
+    );
+  };
+  const kindLabel =
+    meta.kind === "title" ? "Title card" : meta.kind === "lowerThird" ? "Lower third" : "Callout";
+  return (
+    <>
+      <div className="sub-title">Motion graphic: {kindLabel}</div>
+      <label className="field">
+        <span>{meta.kind === "callout" ? "Label" : "Text"}</span>
+        <input
+          defaultValue={params.text}
+          key={`text-${params.text}`}
+          onBlur={(e) => commit({ text: e.target.value })}
+        />
+      </label>
+      {meta.kind !== "callout" && (
+        <label className="field">
+          <span>{meta.kind === "title" ? "Subtitle" : "Second line"}</span>
+          <input
+            defaultValue={params.subtext ?? ""}
+            key={`subtext-${params.subtext ?? ""}`}
+            onBlur={(e) => commit({ subtext: e.target.value })}
+          />
+        </label>
+      )}
+      <div className="field-row">
+        {(
+          [
+            ["Text", "textColor"],
+            ["Accent", "accentColor"],
+            ["Background", "backgroundColor"],
+          ] as const
+        ).map(([label, key]) => (
+          <label key={key} className="color-field">
+            <span>{label}</span>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(params[key]) ? params[key] : "#3b82f6"}
+              onChange={(e) => commit({ [key]: e.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="effect-options">
+        <label className="field-inline">
+          Start
+          <input
+            type="number"
+            min={0}
+            step={50}
+            defaultValue={params.startMs}
+            key={`start-${params.startMs}`}
+            onBlur={(e) => {
+              const value = Number(e.target.value);
+              if (Number.isFinite(value)) commit({ startMs: Math.max(0, value) });
+            }}
+          />
+          ms
+        </label>
+        <label className="field-inline">
+          Duration
+          <input
+            type="number"
+            min={1}
+            step={50}
+            defaultValue={params.durationMs}
+            key={`duration-${params.durationMs}`}
+            onBlur={(e) => {
+              const value = Number(e.target.value);
+              if (Number.isFinite(value)) commit({ durationMs: Math.max(1, value) });
+            }}
+          />
+          ms
+        </label>
+      </div>
+    </>
+  );
+}
+
+function FrameFields({
+  label,
+  frame,
+  onChange,
+}: {
+  label: string;
+  frame: KenBurnsFrame;
+  onChange: (frame: KenBurnsFrame) => void;
+}) {
+  const num = (value: number, step: number, apply: (v: number) => void) => (
+    <input
+      type="number"
+      step={step}
+      value={Number.isFinite(value) ? value : 0}
+      onChange={(e) => {
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v)) apply(v);
+      }}
+    />
+  );
+  return (
+    <div className="effect-options">
+      <span className="muted">{label}</span>
+      <label className="field-inline">Scale{num(frame.scale, 0.05, (v) => onChange({ ...frame, scale: v }))}</label>
+      <label className="field-inline">X{num(frame.x, 1, (v) => onChange({ ...frame, x: v }))}</label>
+      <label className="field-inline">Y{num(frame.y, 1, (v) => onChange({ ...frame, y: v }))}</label>
+    </div>
+  );
+}
+
+function KenBurnsSection({ obj }: { obj: CourseObject }) {
+  const updateObject = useStudioStore((s) => s.updateObject);
+  const meta = getMotionMeta(obj);
+  const kb = meta?.kind === "kenBurns" ? meta : undefined;
+  const preset = (obj.animations?.presets ?? []).find((entry) => entry.name === "kenBurns");
+  const [from, setFrom] = useState<KenBurnsFrame>(kb?.from ?? DEFAULT_KEN_BURNS.from);
+  const [to, setTo] = useState<KenBurnsFrame>(kb?.to ?? DEFAULT_KEN_BURNS.to);
+  const [start, setStart] = useState(preset?.start ?? Math.round((obj.timing?.start ?? 0) * 1000));
+  const [duration, setDuration] = useState(
+    preset?.duration ?? Math.round((obj.timing?.duration ?? 6) * 1000),
+  );
+  const commit = (next: CourseObject) =>
+    updateObject(obj.id, {
+      animations: next.animations,
+      extensions: next.extensions,
+    } as never);
+  return (
+    <>
+      <div className="sub-title">Ken Burns</div>
+      <p className="muted">Slow pan and zoom. Set the start and end framing, then apply.</p>
+      <FrameFields label="Start frame" frame={from} onChange={setFrom} />
+      <FrameFields label="End frame" frame={to} onChange={setTo} />
+      <div className="effect-options">
+        <label className="field-inline">
+          Start
+          <input type="number" min={0} step={50} value={start}
+            onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setStart(Math.max(0, v)); }} />
+          ms
+        </label>
+        <label className="field-inline">
+          Duration
+          <input type="number" min={1} step={50} value={duration}
+            onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDuration(Math.max(1, v)); }} />
+          ms
+        </label>
+      </div>
+      <div className="field-row">
+        <button type="button" onClick={() => commit(applyKenBurns(obj, { from, to }, start, duration))}>
+          {kb ? "Update Ken Burns" : "Apply Ken Burns"}
+        </button>
+        {kb && (
+          <button type="button" onClick={() => commit(clearKenBurns(obj))}>
+            Remove
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function KineticTextSection({
+  obj,
+  sceneObjects,
+}: {
+  obj: CourseObject;
+  sceneObjects: CourseObject[];
+}) {
+  const updateObject = useStudioStore((s) => s.updateObject);
+  const meta = getMotionMeta(obj);
+  const kt = meta?.kind === "kineticText" ? meta : undefined;
+  const entry = (obj.animations?.presets ?? []).find((preset) => isKineticPresetName(preset.name));
+  const [preset, setPreset] = useState<KineticPresetName>(kt?.preset ?? "wordReveal");
+  const [pace, setPace] = useState(kt?.paceToNarration ?? false);
+  const [start, setStart] = useState(entry?.start ?? 0);
+  const [duration, setDuration] = useState(entry?.duration ?? 2000);
+  const commit = (next: CourseObject) =>
+    updateObject(obj.id, {
+      animations: next.animations,
+      extensions: next.extensions,
+    } as never);
+  const apply = () => {
+    let narrationWindowMs: { startMs: number; endMs: number } | undefined;
+    if (pace) {
+      const lines = sceneObjects
+        .filter((object) => object.type === "character")
+        .flatMap((object) => (object as CharacterObject).speech ?? [])
+        .sort((a, b) => a.start - b.start);
+      const line = lines[0];
+      if (line) narrationWindowMs = { startMs: line.start, endMs: line.start + line.duration };
+    }
+    commit(
+      applyKineticText(obj, preset, {
+        startMs: start,
+        durationMs: duration,
+        paceToNarration: pace,
+        ...(narrationWindowMs ? { narrationWindowMs } : {}),
+      }),
+    );
+  };
+  return (
+    <>
+      <div className="sub-title">Kinetic text</div>
+      <label className="field">
+        <span>Reveal</span>
+        <select value={preset} onChange={(e) => setPreset(e.target.value as KineticPresetName)}>
+          <option value="typewriterReveal">Typewriter</option>
+          <option value="wordReveal">Word by word</option>
+          <option value="lineReveal">Line by line</option>
+        </select>
+      </label>
+      <div className="effect-options">
+        <label className="field-inline">
+          Start
+          <input type="number" min={0} step={50} value={start}
+            onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setStart(Math.max(0, v)); }} />
+          ms
+        </label>
+        <label className="field-inline">
+          Duration
+          <input type="number" min={1} step={50} value={duration}
+            onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDuration(Math.max(1, v)); }} />
+          ms
+        </label>
+      </div>
+      <label className="chk">
+        <input type="checkbox" checked={pace} onChange={(e) => setPace(e.target.checked)} />
+        Pace to narration
+      </label>
+      <div className="field-row">
+        <button type="button" onClick={apply}>
+          {kt ? "Update reveal" : "Apply reveal"}
+        </button>
+        {kt && (
+          <button type="button" onClick={() => commit(clearKineticText(obj))}>
+            Remove
+          </button>
+        )}
+      </div>
+    </>
   );
 }

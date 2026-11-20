@@ -54,7 +54,7 @@ export const ANIMATION_PRESETS: ReadonlyArray<{
   name: AnimationPresetName;
   label: string;
   hint: string;
-  category: "enter" | "exit" | "emphasis";
+  category: "enter" | "exit" | "emphasis" | "motion";
 }> = [
   { name: "fadeIn", label: "Fade in", hint: "Opacity 0 to 1", category: "enter" },
   { name: "slideInLeft", label: "Slide in from left", hint: "Moves in from the left", category: "enter" },
@@ -82,6 +82,12 @@ export const ANIMATION_PRESETS: ReadonlyArray<{
   { name: "emphasisPulse", label: "Pulse", hint: "Briefly grows and returns", category: "emphasis" },
   { name: "emphasisShake", label: "Shake", hint: "Briefly shakes and returns", category: "emphasis" },
   { name: "emphasisSpin", label: "Spin", hint: "Rotates once", category: "emphasis" },
+  { name: "kenBurns", label: "Ken Burns", hint: "Slow pan and zoom across a still", category: "motion" },
+  { name: "chartStingGrow", label: "Chart sting: grow", hint: "Chart reveals upward with a settle", category: "enter" },
+  { name: "chartStingSweep", label: "Chart sting: sweep", hint: "Chart sweeps in from the left", category: "enter" },
+  { name: "typewriterReveal", label: "Typewriter reveal", hint: "Text appears character by character", category: "enter" },
+  { name: "wordReveal", label: "Word by word reveal", hint: "Text appears word by word", category: "enter" },
+  { name: "lineReveal", label: "Line by line reveal", hint: "Text appears line by line", category: "enter" },
 ];
 
 /** Easing functions map normalized progress to an interpolation weight. */
@@ -169,6 +175,23 @@ export function timelineEndMs(timeline: AnimationTrack[] | undefined): number {
   return end;
 }
 
+/**
+ * One Ken Burns framing: the scale multiplier and the x/y offsets (px,
+ * applied on top of the authored position, same semantics as timeline
+ * tracks) the object holds at one end of the move.
+ */
+export interface KenBurnsFrame {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+/** Default Ken Burns move: a slow push-in with a slight drift up and left. */
+export const DEFAULT_KEN_BURNS: { from: KenBurnsFrame; to: KenBurnsFrame } = {
+  from: { scale: 1, x: 0, y: 0 },
+  to: { scale: 1.15, x: -24, y: -12 },
+};
+
 export interface PresetOptions {
   /** Start time in ms. Defaults to 0. */
   start?: number;
@@ -176,6 +199,8 @@ export interface PresetOptions {
   duration?: number;
   /** Slide distance in px for slide presets. Defaults to 300. */
   distance?: number;
+  /** Ken Burns start and end framing. Defaults to DEFAULT_KEN_BURNS. */
+  kenBurns?: { from: KenBurnsFrame; to: KenBurnsFrame };
 }
 
 /**
@@ -271,6 +296,34 @@ export function expandAnimationPreset(
       return [{ property: "rotation", from: 0, to: 8, start, duration, easing: "shake" }];
     case "emphasisSpin":
       return [{ property: "rotation", from: 0, to: 360, start, duration }];
+    case "kenBurns": {
+      const framing = opts.kenBurns ?? DEFAULT_KEN_BURNS;
+      return [
+        { property: "scale", from: framing.from.scale, to: framing.to.scale, start, duration, easing: "easeInOut" },
+        { property: "x", from: framing.from.x, to: framing.to.x, start, duration, easing: "easeInOut" },
+        { property: "y", from: framing.from.y, to: framing.to.y, start, duration, easing: "easeInOut" },
+      ];
+    }
+    case "chartStingGrow":
+      return [
+        { property: "wipeUp", from: 0, to: 1, start, duration },
+        { property: "scale", from: 0.96, to: 1, start, duration },
+      ];
+    case "chartStingSweep":
+      return [
+        { property: "wipeRight", from: 0, to: 1, start, duration },
+        { property: "opacity", from: 0, to: 1, start, duration },
+      ];
+    case "typewriterReveal":
+    case "wordReveal":
+    case "lineReveal":
+      // Kinetic text reveals are not transform tracks: no animatable
+      // property expresses per-unit text visibility. The preset entry on
+      // the object is the marker and carries the reveal window (start and
+      // duration); the motion graphics toolkit expands the preset into a
+      // deterministic per-unit reveal schedule that the stage renderer
+      // and the export renderer sample identically.
+      return [];
   }
 }
 
@@ -341,22 +394,45 @@ export const CHARACTER_IDS: ReadonlyArray<{
   { id: "professor", label: "Professor", hint: "Glasses, cardigan" },
 ];
 
+/** Picker groups for character animations (Studio issues #94 and #96). */
+export type CharacterAnimationGroup = "basics" | "movement" | "reactions";
+
+export const CHARACTER_ANIMATION_GROUPS: ReadonlyArray<{
+  id: CharacterAnimationGroup;
+  label: string;
+}> = [
+  { id: "basics", label: "Basics" },
+  { id: "movement", label: "Movement" },
+  { id: "reactions", label: "Reactions" },
+];
+
 export const CHARACTER_ANIMATIONS: ReadonlyArray<{
   name: CharacterAnimationName;
   label: string;
   hint: string;
   /** Whether the animation loops (vs. plays once / holds a pose). */
   loops: boolean;
+  /** Picker group (issues #94 and #96). Two character interactions live in
+   * @finch-studio/characters and are applied to a pair, not one character. */
+  group: CharacterAnimationGroup;
 }> = [
-  { name: "idle", label: "Idle", hint: "Subtle breathing sway", loops: true },
-  { name: "walk", label: "Walk", hint: "Leg/arm swing cycle", loops: true },
-  { name: "talk", label: "Talk", hint: "Mouth + head bob", loops: true },
-  { name: "wave", label: "Wave", hint: "Friendly wave", loops: false },
-  { name: "point", label: "Point", hint: "Arm extends", loops: false },
-  { name: "nod", label: "Nod", hint: "Head nod", loops: false },
-  { name: "shake", label: "Shake head", hint: "Head shake", loops: false },
-  { name: "sit", label: "Sit", hint: "Seated pose", loops: false },
-  { name: "stand", label: "Stand", hint: "Neutral standing", loops: false },
+  { name: "idle", label: "Idle", hint: "Subtle breathing sway", loops: true, group: "basics" },
+  { name: "walk", label: "Walk", hint: "Leg/arm swing cycle", loops: true, group: "movement" },
+  { name: "talk", label: "Talk", hint: "Mouth + head bob", loops: true, group: "basics" },
+  { name: "wave", label: "Wave", hint: "Friendly wave", loops: false, group: "basics" },
+  { name: "point", label: "Point", hint: "Arm extends", loops: false, group: "basics" },
+  { name: "nod", label: "Nod yes", hint: "Head nod", loops: false, group: "reactions" },
+  { name: "shake", label: "Shake head no", hint: "Head shake", loops: false, group: "reactions" },
+  { name: "sit", label: "Sit", hint: "Seated pose", loops: false, group: "basics" },
+  { name: "stand", label: "Stand", hint: "Neutral standing", loops: false, group: "basics" },
+  { name: "run", label: "Run", hint: "Fast stride with bent arms and bounce", loops: true, group: "movement" },
+  { name: "clap", label: "Clap", hint: "Hands meet in front, twice per cycle", loops: true, group: "reactions" },
+  { name: "shrug", label: "Shrug", hint: "Shoulders rise, palms turn up", loops: false, group: "reactions" },
+  { name: "thumbs-up", label: "Thumbs up", hint: "Forearm raises in approval", loops: false, group: "reactions" },
+  { name: "celebrate", label: "Celebrate", hint: "Both arms up with a bounce", loops: true, group: "reactions" },
+  { name: "laugh", label: "Laugh", hint: "Shoulders shake, hands on belly", loops: true, group: "reactions" },
+  { name: "bow", label: "Bow", hint: "Dips forward and rises", loops: false, group: "movement" },
+  { name: "look-around", label: "Look around", hint: "Head scans left, then right", loops: false, group: "movement" },
 ];
 
 export interface PathSample {

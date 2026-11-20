@@ -17,6 +17,7 @@ import { StudioObjectRenderer } from "./StudioObjectRenderer";
 import { sceneBackgroundCss } from "../content/bundledContent";
 import { isMulticamObjectVisibleAt } from "../multicam";
 import {
+  effectiveAnimationsForObject,
   mergeAnimatedStyle,
   objectOutsideFrame,
   projectAspect,
@@ -146,7 +147,7 @@ export function StudioCanvas({
                 const drawTreatment = drawOnForObject(o);
                 let style = mergeAnimatedStyle(
                   objectStyle,
-                  tMs === null ? {} : timelineStyleFor(o.animations, tMs),
+                  tMs === null ? {} : timelineStyleFor(effectiveAnimationsForObject(o), tMs),
                 );
                 if (drawSample && (o.type === "text" || o.type === "image")) {
                   // Text and images reveal with the wipe that matches

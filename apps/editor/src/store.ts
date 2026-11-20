@@ -60,7 +60,18 @@ import {
 } from "./footageEditing";
 import { pipLayoutRect } from "@finch-studio/schema";
 import type { VideoObject } from "@finch-studio/core";
-import { characterForLegacyId } from "@finch-studio/characters";
+import {
+  characterForLegacyId,
+  planInteraction,
+  type CustomCharacterDef,
+  type InteractionName,
+} from "@finch-studio/characters";
+import {
+  loadCustomCharacters,
+  saveCustomCharacters,
+  upsertCustomCharacter,
+  withCustomCharacterDef,
+} from "./customCharacters";
 import type { EmbedContext } from "./embed";
 import {
   applyTranscriptSentenceDeletion,
@@ -140,6 +151,15 @@ export function makeStudioCharacter(characterId: CharacterId): CharacterObject {
     characterAnimation: "idle",
     facing: "right",
   };
+}
+
+/**
+ * A placed custom (user rigged) character (issue #74): a normal
+ * character object whose x-finch-studio extension carries the full
+ * custom def, so it animates, speaks, and exports like the cast.
+ */
+export function makeStudioCustomCharacter(def: CustomCharacterDef): CharacterObject {
+  return withCustomCharacterDef(makeStudioCharacter("businesswoman"), def);
 }
 
 export function makeStudioImage(resource: string, name = "Image"): CourseObject {
@@ -327,6 +347,10 @@ interface VideoStudioState {
   /** Verified FinchLearn handoff context (issue #49); null standalone. */
   embedContext: EmbedContext | null;
   setEmbedContext: (context: EmbedContext | null) => void;
+  /** User rigged characters saved to the library (issue #74). */
+  customCharacters: CustomCharacterDef[];
+  saveCustomCharacter: (def: CustomCharacterDef) => void;
+  removeCustomCharacter: (id: string) => void;
 
   // project
   newProject: () => void;
@@ -353,6 +377,7 @@ interface VideoStudioState {
   selectObject: (id: string | null, additive?: boolean) => void;
   addObject: (obj: CourseObject) => void;
   insertObjectGroup: (objects: CourseObject[]) => void;
+  replaceObjectGroup: (oldIds: string[], objects: CourseObject[]) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
   setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
   setObjectDrawOn: (id: string, treatment: DrawOnTreatment | undefined) => void;
@@ -395,6 +420,7 @@ interface VideoStudioState {
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
+  applyInteraction: (initiatorId: string, name: InteractionName, orientationId: string) => void;
   setCharColors: (id: string, c: CharacterColors) => void;
   addWaypoint: (id: string, w: CharacterWaypoint) => void;
   updateWaypoint: (id: string, idx: number, patch: Partial<CharacterWaypoint>) => void;
@@ -629,6 +655,17 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     tts: { voiceId: undefined, rate: 1, pitch: 1 },
     embedObjectId,
     embedContext: null,
+    customCharacters: loadCustomCharacters(),
+    saveCustomCharacter: (def) => {
+      const next = upsertCustomCharacter(get().customCharacters, def);
+      saveCustomCharacters(next);
+      set({ customCharacters: next });
+    },
+    removeCustomCharacter: (id) => {
+      const next = get().customCharacters.filter((d) => d.id !== id);
+      saveCustomCharacters(next);
+      set({ customCharacters: next });
+    },
     setEmbedContext: (context) =>
       set({
         embedContext: context,
@@ -889,6 +926,21 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         selectedObjectId: copies.at(-1)?.id ?? null,
         selectedObjectIds: copies.map((object) => object.id),
       });
+    },
+    replaceObjectGroup: (oldIds, objects) => {
+      const { project, currentSceneId } = get();
+      const oldSet = new Set(oldIds);
+      commit(
+        patchScene(project, currentSceneId, (scene) => {
+          const firstIndex = scene.objects.findIndex((object) => oldSet.has(object.id));
+          const kept = scene.objects.filter((object) => !oldSet.has(object.id));
+          const insertAt = firstIndex < 0 ? kept.length : Math.min(firstIndex, kept.length);
+          return {
+            ...scene,
+            objects: [...kept.slice(0, insertAt), ...objects, ...kept.slice(insertAt)],
+          };
+        }),
+      );
     },
     updateObject: (id, patch) => {
       const { project, currentSceneId } = get();
@@ -1429,6 +1481,69 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           return c ? { ...c, facing: f } : o;
         }),
       );
+    },
+    applyInteraction: (initiatorId, name, orientationId) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene) return;
+      const initiator = scene.objects.find((o) => o.id === initiatorId);
+      if (!initiator || initiator.type !== "character") return;
+      // Partner: the nearest other character in the scene, by stage x.
+      const ix = initiator.position?.x ?? 0;
+      const partner = scene.objects
+        .filter((o) => o.type === "character" && o.id !== initiatorId)
+        .sort(
+          (a, b) =>
+            Math.abs((a.position?.x ?? 0) - ix) -
+            Math.abs((b.position?.x ?? 0) - ix),
+        )[0];
+      if (!partner) return;
+      const pos = initiator.position ?? {};
+      const plan = planInteraction(
+        name,
+        orientationId,
+        { x: pos.x ?? 0, y: pos.y ?? 0, facing: initiator.facing ?? "right" },
+        (pos.w ?? 140) / 200,
+      );
+      commit(
+        patchScene(project, currentSceneId, (s) => ({
+          ...s,
+          objects: s.objects.map((o) => {
+            if (o.id === initiatorId) {
+              const c = asCharacter(o);
+              return c
+                ? {
+                    ...c,
+                    // Plan actions are always interaction role actions,
+                    // which the core animation name union carries.
+                    characterAnimation: plan.initiator.action as CharacterAnimationName,
+                    facing: plan.initiator.facing,
+                  }
+                : o;
+            }
+            if (o.id === partner.id) {
+              const c = asCharacter(o);
+              return c
+                ? {
+                    ...c,
+                    characterAnimation: plan.partner.action as CharacterAnimationName,
+                    facing: plan.partner.facing,
+                    position: {
+                      ...c.position,
+                      x: plan.partner.placement.x,
+                      y: plan.partner.placement.y,
+                    },
+                  }
+                : o;
+            }
+            return o;
+          }),
+        })),
+      );
+      set({
+        selectedObjectId: partner.id,
+        selectedObjectIds: [initiatorId, partner.id],
+      });
     },
     setCharColors: (id, c) => {
       const { project, currentSceneId } = get();

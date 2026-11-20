@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@finch-studio/ai-assets": "0.1.0",
     "@finch-studio/animation": "0.1.0",
     "@finch-studio/audio": "0.1.0",
     "@finch-studio/core": "0.1.0",

@@ -10,6 +10,7 @@ import type { CourseObject } from "@finch-studio/core";
 import type { MediaAsset } from "@finch-studio/media";
 import { useStudioStore, makeStudioImage } from "../store";
 import { RecordPanel } from "./RecordPanel";
+import { GenerateAssetPanel } from "./GenerateAssetPanel";
 import {
   bundledBackgroundRef,
   bundledFamilyName,
@@ -80,7 +81,7 @@ export function MediaPanel() {
   const addObject = useStudioStore((s) => s.addObject);
   const insertObjectGroup = useStudioStore((s) => s.insertObjectGroup);
   const setSceneBackground = useStudioStore((s) => s.setSceneBackground);
-  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds">("stock");
+  const [tab, setTab] = useState<"stock" | "unsplash" | "mine" | "record" | "groups" | "props" | "backgrounds" | "generate">("stock");
   const [bundledSearch, setBundledSearch] = useState("");
   const [mine, setMine] = useState<UserItem[]>(loadUserItems);
   const [groups, setGroups] = useState<SceneGroupPreset[]>(loadSceneGroups);
@@ -161,6 +162,7 @@ export function MediaPanel() {
         <button type="button" className={tab === "groups" ? "active" : ""} onClick={() => setTab("groups")}>Groups</button>
         <button type="button" className={tab === "props" ? "active" : ""} onClick={() => setTab("props")}>Props</button>
         <button type="button" className={tab === "backgrounds" ? "active" : ""} onClick={() => setTab("backgrounds")}>Backgrounds</button>
+        <button type="button" className={tab === "generate" ? "active" : ""} onClick={() => setTab("generate")}>Generate</button>
       </div>
       {tab === "props" || tab === "backgrounds" ? (
         <div>
@@ -258,6 +260,8 @@ export function MediaPanel() {
         </div>
       ) : tab === "record" ? (
         <RecordPanel />
+      ) : tab === "generate" ? (
+        <GenerateAssetPanel />
       ) : tab === "groups" ? (
         <div>
           <div className="lib-row">
