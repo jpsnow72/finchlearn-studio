@@ -5,9 +5,165 @@
  * project timing (with transitions), validate structure, and convert between
  * projects and plain JSON for save/load.
  */
-import type { CourseObject, VideoProject, VideoScene } from "@finch-studio/core";
+import type {
+  CourseObject,
+  ProjectAspect,
+  VideoProject,
+  VideoScene,
+} from "@finch-studio/core";
 
 export const DEFAULT_SCENE_DURATION_MS = 5000;
+
+/* ------------------------------------------------------------------ */
+/* Project aspect (issue #13 stage aspect switcher)                    */
+/* ------------------------------------------------------------------ */
+
+export const PROJECT_ASPECTS: ProjectAspect[] = ["16:9", "9:16", "1:1"];
+export const DEFAULT_PROJECT_ASPECT: ProjectAspect = "16:9";
+
+/**
+ * Stage coordinate space per aspect. Object positions live in this
+ * space, so the stage, the safe-area preview, and export rendering all
+ * agree on one frame per aspect. The frames keep one shared scale:
+ * 1280x720 landscape, 720x1280 portrait, 720x720 square.
+ */
+export const STAGE_DIMENSIONS: Record<
+  ProjectAspect,
+  { width: number; height: number }
+> = {
+  "16:9": { width: 1280, height: 720 },
+  "9:16": { width: 720, height: 1280 },
+  "1:1": { width: 720, height: 720 },
+};
+
+export function isProjectAspect(value: unknown): value is ProjectAspect {
+  return value === "16:9" || value === "9:16" || value === "1:1";
+}
+
+/** The project's effective aspect; legacy projects without the field
+ * (and any unrecognized value) open as 16:9, exactly as before. */
+export function projectAspect(
+  project: Pick<VideoProject, "aspect">,
+): ProjectAspect {
+  return isProjectAspect(project.aspect)
+    ? project.aspect
+    : DEFAULT_PROJECT_ASPECT;
+}
+
+/** Copy of the project with its effective aspect made explicit. */
+export function withProjectAspect(project: VideoProject): VideoProject {
+  const aspect = projectAspect(project);
+  return project.aspect === aspect ? project : { ...project, aspect };
+}
+
+export function stageDimensionsForAspect(aspect: ProjectAspect): {
+  width: number;
+  height: number;
+} {
+  return STAGE_DIMENSIONS[aspect];
+}
+
+export function stageDimensions(project: Pick<VideoProject, "aspect">): {
+  width: number;
+  height: number;
+} {
+  return STAGE_DIMENSIONS[projectAspect(project)];
+}
+
+/** True when a positioned object sits partly or wholly outside a frame. */
+export function objectOutsideFrame(
+  object: CourseObject,
+  frame: { width: number; height: number },
+): boolean {
+  const pos = object.position;
+  if (!pos) return false;
+  const x = pos.x ?? 0;
+  const y = pos.y ?? 0;
+  const w = pos.w ?? 0;
+  const h = pos.h ?? 0;
+  return x < 0 || y < 0 || x + w > frame.width || y + h > frame.height;
+}
+
+function reframeObject(
+  object: CourseObject,
+  sx: number,
+  sy: number,
+  s: number,
+  frame: { width: number; height: number },
+): CourseObject {
+  let next = object;
+  if (object.position) {
+    const pos = object.position;
+    let w = pos.w !== undefined ? Math.round(pos.w * s) : undefined;
+    let h = pos.h !== undefined ? Math.round(pos.h * s) : undefined;
+    if (w !== undefined && w > frame.width) w = frame.width;
+    if (h !== undefined && h > frame.height) h = frame.height;
+    let x = pos.x !== undefined ? Math.round(pos.x * sx) : undefined;
+    let y = pos.y !== undefined ? Math.round(pos.y * sy) : undefined;
+    // Clamp inside the new frame: nothing is silently clipped or lost,
+    // the same rule duplicateProjectAs applies in @finch-studio/schema.
+    if (x !== undefined) {
+      x = Math.max(0, Math.min(x, frame.width - (w ?? 0)));
+    }
+    if (y !== undefined) {
+      y = Math.max(0, Math.min(y, frame.height - (h ?? 0)));
+    }
+    next = { ...next, position: { ...pos, x, y, w, h } };
+  }
+  const char = next as { path?: { x: number; y: number; t: number }[] };
+  if (Array.isArray(char.path) && char.path.length > 0) {
+    next = {
+      ...next,
+      path: char.path.map((wp) => ({
+        ...wp,
+        x: Math.max(0, Math.min(frame.width, Math.round(wp.x * sx))),
+        y: Math.max(0, Math.min(frame.height, Math.round(wp.y * sy))),
+      })),
+    } as CourseObject;
+  }
+  const group = next as { objects?: CourseObject[] };
+  if (Array.isArray(group.objects)) {
+    next = {
+      ...next,
+      objects: group.objects.map((child) =>
+        reframeObject(child, sx, sy, s, frame),
+      ),
+    } as CourseObject;
+  }
+  return next;
+}
+
+/**
+ * Reframe a project into a new stage aspect in place (issue #13),
+ * mirroring the smart auto-reframe of duplicateProjectAs (issue #62):
+ * positions scale by the frame ratio, sizes shrink to fit rather than
+ * cropping, and every element is clamped inside the new frame so no
+ * element is lost. Switching to the current aspect returns the project
+ * unchanged. The input project is not mutated.
+ */
+export function reframeProjectForAspect(
+  project: VideoProject,
+  aspect: ProjectAspect,
+): VideoProject {
+  const from = STAGE_DIMENSIONS[projectAspect(project)];
+  const to = STAGE_DIMENSIONS[aspect];
+  if (from === to) {
+    return project.aspect === aspect ? project : { ...project, aspect };
+  }
+  const sx = to.width / from.width;
+  const sy = to.height / from.height;
+  const s = Math.min(sx, sy);
+  return {
+    ...project,
+    aspect,
+    scenes: project.scenes.map((scene) => ({
+      ...scene,
+      objects: scene.objects.map((object) =>
+        reframeObject(object, sx, sy, s, to),
+      ),
+    })),
+  };
+}
 
 let counter = 0;
 /** Collision-resistant id for studio-created entities. */
@@ -52,6 +208,7 @@ export function makeVideoProject(name = "Untitled video"): VideoProject {
     id: newVideoId("vproj"),
     name,
     scenes: [makeVideoScene("Scene 1")],
+    aspect: DEFAULT_PROJECT_ASPECT,
   };
 }
 
@@ -154,6 +311,9 @@ export function validateVideoProject(project: VideoProject): string[] {
   if (!project.name) problems.push("Project is missing a name.");
   if (!Array.isArray(project.scenes) || project.scenes.length === 0) {
     problems.push("Project has no scenes.");
+  }
+  if (project.aspect !== undefined && !isProjectAspect(project.aspect)) {
+    problems.push(`Project aspect "${String(project.aspect)}" is not supported. Use 16:9, 9:16, or 1:1.`);
   }
   project.scenes.forEach((s, i) => {
     if (!s.id) problems.push(`Scene ${i + 1} is missing an id.`);

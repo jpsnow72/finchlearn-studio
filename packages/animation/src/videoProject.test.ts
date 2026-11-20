@@ -5,12 +5,17 @@ import { describe, expect, it } from "vitest";
 import {
   makeVideoProject,
   makeVideoScene,
+  objectOutsideFrame,
+  projectAspect,
   projectTimeline,
   projectDurationMs,
+  reframeProjectForAspect,
   sceneContentDurationMs,
   sceneAt,
+  stageDimensions,
   transitionAlpha,
   validateVideoProject,
+  withProjectAspect,
 } from "./videoProject.js";
 import type { VideoProject } from "@finch-studio/core";
 
@@ -136,5 +141,89 @@ describe("validateVideoProject", () => {
     expect(
       validateVideoProject(zeroDur).some((m) => m.includes("durationMs")),
     ).toBe(true);
+  });
+});
+
+describe("project aspect (issue #13)", () => {
+  it("defaults new projects to 16:9 with a 1280x720 stage", () => {
+    const p = makeVideoProject("test");
+    expect(p.aspect).toBe("16:9");
+    expect(stageDimensions(p)).toEqual({ width: 1280, height: 720 });
+    expect(stageDimensions({ aspect: "9:16" })).toEqual({ width: 720, height: 1280 });
+    expect(stageDimensions({ aspect: "1:1" })).toEqual({ width: 720, height: 720 });
+  });
+
+  it("opens legacy projects without an aspect as 16:9", () => {
+    const legacy = makeVideoProject("legacy");
+    delete legacy.aspect;
+    expect(projectAspect(legacy)).toBe("16:9");
+    expect(withProjectAspect(legacy).aspect).toBe("16:9");
+    expect(validateVideoProject(legacy)).toEqual([]);
+    const broken = { ...legacy, aspect: "4:3" as never };
+    expect(projectAspect(broken)).toBe("16:9");
+    expect(
+      validateVideoProject(broken).some((m) => m.includes("aspect")),
+    ).toBe(true);
+  });
+
+  it("reframes objects into the portrait frame, scaled and inside", () => {
+    const p = makeVideoProject("test");
+    p.scenes[0].objects.push({
+      id: "hero",
+      type: "shape",
+      position: { x: 200, y: 200, w: 140, h: 280 },
+    } as never);
+    const out = reframeProjectForAspect(p, "9:16");
+    expect(out.aspect).toBe("9:16");
+    expect(out.scenes[0].objects).toHaveLength(1);
+    expect(out.scenes[0].objects[0].position).toEqual({
+      x: 113,
+      y: 356,
+      w: 79,
+      h: 158,
+    });
+    // The source project is not mutated.
+    expect(p.aspect).toBe("16:9");
+    expect(p.scenes[0].objects[0].position).toEqual({
+      x: 200,
+      y: 200,
+      w: 140,
+      h: 280,
+    });
+  });
+
+  it("clamps overflowing elements inside the new frame instead of losing them", () => {
+    const p = makeVideoProject("test");
+    p.scenes[0].objects.push({
+      id: "edge",
+      type: "shape",
+      position: { x: 1200, y: 600, w: 400, h: 300 },
+    } as never);
+    const out = reframeProjectForAspect(p, "9:16");
+    const pos = out.scenes[0].objects[0].position!;
+    expect(pos.x! + pos.w!).toBeLessThanOrEqual(720);
+    expect(pos.y! + pos.h!).toBeLessThanOrEqual(1280);
+    expect(objectOutsideFrame(out.scenes[0].objects[0], { width: 720, height: 1280 })).toBe(false);
+    expect(objectOutsideFrame(p.scenes[0].objects[0], { width: 720, height: 1280 })).toBe(true);
+  });
+
+  it("reframes character path waypoints and square projects", () => {
+    const p = makeVideoProject("test");
+    p.scenes[0].objects.push({
+      id: "walker",
+      type: "character",
+      characterId: "student",
+      position: { x: 0, y: 0, w: 140, h: 280 },
+      path: [{ x: 1280, y: 720, t: 0 }],
+    } as never);
+    const square = reframeProjectForAspect(p, "1:1");
+    expect(square.aspect).toBe("1:1");
+    const walker = square.scenes[0].objects[0] as { path?: { x: number; y: number }[] };
+    expect(walker.path?.[0]).toMatchObject({ x: 720, y: 720 });
+  });
+
+  it("returns the project unchanged when switching to its current aspect", () => {
+    const p = makeVideoProject("test");
+    expect(reframeProjectForAspect(p, "16:9")).toBe(p);
   });
 });

@@ -17,6 +17,7 @@ import type {
   CharacterWaypoint,
   AnimationPreset,
   CourseObject,
+  ProjectAspect,
   VideoProject,
   VideoScene,
   VideoSceneTransition,
@@ -24,7 +25,10 @@ import type {
 import {
   makeVideoProject,
   makeVideoScene,
+  projectAspect,
+  reframeProjectForAspect,
   sceneContentDurationMs,
+  withProjectAspect,
 } from "@finch-studio/animation";
 import {
   addAudioVolumeKeyframe,
@@ -47,12 +51,54 @@ import {
   type CaptionStyle,
 } from "./captions";
 import type { SilenceOptions } from "@finch-studio/audio";
+import {
+  FOOTAGE_STAGE_H,
+  FOOTAGE_STAGE_W,
+  resolveFootageObject,
+  withFootageClipMetadata,
+  type FootageClipPatch,
+} from "./footageEditing";
+import { pipLayoutRect } from "@finch-studio/schema";
+import type { VideoObject } from "@finch-studio/core";
 import { characterForLegacyId } from "@finch-studio/characters";
 import type { EmbedContext } from "./embed";
 import {
   applyTranscriptSentenceDeletion,
   applyTranscriptWordDeletion,
 } from "./roughCut";
+import { withObjectTranscript, type ClipTranscript } from "./transcription";
+import {
+  withObjectColorCorrection,
+  type ColorCorrection,
+} from "./colorCorrection";
+export {
+  getObjectColorCorrection,
+  isColorCorrectableObject,
+  type ColorCorrection,
+} from "./colorCorrection";
+import { makeCueMarker, type CueMarker, type CueMarkerType } from "@finch-studio/schema";
+import {
+  clampMarkerMs,
+  sceneCueMarkers,
+  withSceneCueMarkers,
+} from "./cuePoints";
+import {
+  nudgeMulticamAngle,
+  switchMulticamAngle,
+  type MulticamGroup,
+} from "@finch-studio/schema";
+import {
+  buildMulticamGroup,
+  getMulticam,
+  withMulticam,
+  type SceneWithMulticam,
+} from "./multicam";
+import type { DrawOnTreatment } from "@finch-studio/motion";
+import {
+  withDrawOn,
+  withSceneWhiteboard,
+  type WhiteboardSceneData,
+} from "./drawOn";
 
 export const TIMELINE_LANES = ["main", "overlay", "voice", "music"] as const;
 export type TimelineLane = (typeof TIMELINE_LANES)[number];
@@ -290,6 +336,7 @@ interface VideoStudioState {
   setProjectName: (name: string) => void;
   updateCaption: (sceneId: string, lineId: string, patch: CaptionEdit) => void;
   setCaptionStyle: (patch: Partial<CaptionStyle>) => void;
+  setProjectAspect: (aspect: ProjectAspect) => void;
   // scenes
   addScene: () => void;
   duplicateScene: (id: string) => void;
@@ -298,6 +345,7 @@ interface VideoStudioState {
   setSceneTransition: (id: string, t: VideoSceneTransition) => void;
   setSceneBackground: (id: string, background: string | undefined) => void;
   setScenePresets: (id: string, presets: AnimationPreset[]) => void;
+  setSceneWhiteboard: (id: string, whiteboard: WhiteboardSceneData | undefined) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
   moveSceneTo: (id: string, index: number) => void;
   selectScene: (id: string) => void;
@@ -307,6 +355,7 @@ interface VideoStudioState {
   insertObjectGroup: (objects: CourseObject[]) => void;
   updateObject: (id: string, patch: Partial<CourseObject>) => void;
   setObjectPresets: (id: string, presets: AnimationPreset[]) => void;
+  setObjectDrawOn: (id: string, treatment: DrawOnTreatment | undefined) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dir: -1 | 1) => void;
   selectTimelineClip: (id: string | null) => void;
@@ -318,6 +367,7 @@ interface VideoStudioState {
   splitTimelineAt: (atMs: number) => void;
   rippleDeleteTimelineClip: (id: string) => void;
   rippleDeleteGapAt: (atMs: number) => void;
+  setObjectColorCorrection: (id: string, correction: ColorCorrection | null) => void;
   updateAudioMetadata: (id: string, patch: Partial<AudioClipMetadata>) => void;
   setCleanVoiceOnAllClips: (settings: CleanVoiceSettings) => void;
   applyVoiceoverTake: (
@@ -325,11 +375,23 @@ interface VideoStudioState {
     lineRetimes: { characterId: string; lineId: string; start: number; duration: number }[],
   ) => void;
   clearSceneVoiceover: () => void;
+  updateFootageMetadata: (id: string, patch: FootageClipPatch) => void;
+  setObjectTranscript: (id: string, transcript: ClipTranscript | null) => void;
   addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
   rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
   tightenAudioSilence: (id: string, options?: Partial<SilenceOptions>) => void;
   deleteTranscriptWords: (clipId: string, wordStartIndex: number, wordEndIndex: number) => void;
   deleteTranscriptSentence: (clipId: string, sentenceIndex: number) => void;
+  // cue markers (issue #64)
+  addCueMarker: (type: CueMarkerType, atMs: number) => CueMarker;
+  updateCueMarker: (id: string, patch: Partial<CueMarker>) => void;
+  removeCueMarker: (id: string) => void;
+  // multicam (#47)
+  setupMulticam: (objectIds: string[]) => void;
+  setMulticamGroup: (group: MulticamGroup) => void;
+  switchMulticamAngle: (atMs: number, angleId: string) => void;
+  nudgeMulticamAngle: (angleId: string, deltaMs: number) => void;
+  clearMulticam: () => void;
   // characters
   setCharAnimation: (id: string, a: CharacterAnimationName) => void;
   setCharFacing: (id: string, f: CharacterFacing) => void;
@@ -463,9 +525,16 @@ function withTimelineClip(
     timelineLane: lane,
   };
   if ((object.type === "video" || object.type === "audio") && sourceInDeltaMs !== 0) {
+    // A timeline delta is source time scaled by playback speed for
+    // footage (issue #25); audio and speed 1 footage keep the raw delta.
+    const factor =
+      object.type === "video"
+        ? resolveFootageObject(object as VideoObject).speed
+        : 1;
     metadata.sourceInMs = Math.max(
       0,
-      (typeof metadata.sourceInMs === "number" ? metadata.sourceInMs : 0) + sourceInDeltaMs,
+      (typeof metadata.sourceInMs === "number" ? metadata.sourceInMs : 0) +
+        sourceInDeltaMs * factor,
     );
   }
   return {
@@ -522,7 +591,7 @@ function rippleObjects(
 
 export const useStudioStore = create<VideoStudioState>()((set, get) => {
   const initial = deriveProjectDurations(
-    (loadStored() ?? makeVideoProject("Untitled video")) as CaptionProject,
+    withProjectAspect(loadStored() ?? makeVideoProject("Untitled video")) as CaptionProject,
   );
   const params =
     typeof window !== "undefined"
@@ -568,7 +637,7 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       }),
 
     loadProject: (p) => {
-      const project = deriveProjectDurations(p as CaptionProject);
+      const project = deriveProjectDurations(withProjectAspect(p) as CaptionProject);
       set({
         project,
         pastProjects: [],
@@ -662,6 +731,13 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
     setCaptionStyle: (patch) =>
       commit(withCaptionStyle(get().project, patch)),
+    setProjectAspect: (aspect) => {
+      const { project } = get();
+      if (projectAspect(project) === aspect) return;
+      // In-place reframe (issue #13): elements scale and clamp inside
+      // the new frame, nothing is dropped; the switch is one undo step.
+      commit(reframeProjectForAspect(project, aspect));
+    },
 
     addScene: () => {
       const { project } = get();
@@ -679,13 +755,30 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       const index = project.scenes.findIndex((scene) => scene.id === id);
       if (index < 0) return;
       const source = project.scenes[index];
+      const copiedObjects = source.objects.map(duplicateObject);
       const duplicate = {
         ...source,
         id: makeVideoScene().id,
         name: `${source.name} copy`,
         transition: "cut" as const,
-        objects: source.objects.map(duplicateObject),
+        objects: copiedObjects,
       };
+      // Multicam angles point at footage objects; remap them onto the
+      // duplicated objects so the copy's group stays valid (#47).
+      const sourceMulticam = getMulticam(source);
+      if (sourceMulticam) {
+        const idByOldSource = new Map(
+          source.objects.map((o, i) => [o.id, copiedObjects[i]?.id ?? o.id]),
+        );
+        const remapped: MulticamGroup = {
+          ...sourceMulticam,
+          angles: sourceMulticam.angles.map((angle) => ({
+            ...angle,
+            sourceId: idByOldSource.get(angle.sourceId) ?? angle.sourceId,
+          })),
+        };
+        (duplicate as SceneWithMulticam).multicam = remapped;
+      }
       const scenes = [...project.scenes];
       scenes.splice(index + 1, 0, duplicate);
       commit(copyCaptionEditsForScene({ ...project, scenes }, source, duplicate));
@@ -732,6 +825,8 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           animations: { ...s.animations, presets: presets.map((preset) => ({ ...preset })) },
         })),
       ),
+    setSceneWhiteboard: (id, whiteboard) =>
+      commit(patchScene(get().project, id, (s) => withSceneWhiteboard(s, whiteboard))),
     moveScene: (id, dir) => {
       const i = get().project.scenes.findIndex((scene) => scene.id === id);
       get().moveSceneTo(id, i + dir);
@@ -813,6 +908,10 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         }) as CourseObject),
       );
     },
+    setObjectDrawOn: (id, treatment) => {
+      const { project, currentSceneId } = get();
+      commit(patchObject(project, currentSceneId, id, (o) => withDrawOn(o, treatment)));
+    },
     removeObject: (id) => {
       const { project, currentSceneId } = get();
       commit(
@@ -876,17 +975,39 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
       );
       const next = patchScene(project, currentSceneId, (currentScene) => ({
         ...currentScene,
-        objects: currentScene.objects.map((item) =>
-          item.id === id
-            ? withTimelineClip(
-                item,
-                startMs,
-                durationMs,
-                patch.lane ?? timelineLaneForObject(item),
-                patch.trimEdge === "start" ? startMs - current.startMs : 0,
-              )
-            : item,
-        ),
+        objects: currentScene.objects.map((item) => {
+          if (item.id !== id) return item;
+          const clipped = withTimelineClip(
+            item,
+            startMs,
+            durationMs,
+            patch.lane ?? timelineLaneForObject(item),
+            patch.trimEdge === "start" ? startMs - current.startMs : 0,
+          );
+          // Dragging a footage clip's end edge re-trims its source out
+          // point (issue #25), so the stored trim and the timeline
+          // duration stay in agreement at the clip's speed.
+          if (
+            item.type === "video" &&
+            patch.durationMs !== undefined &&
+            patch.trimEdge !== "start"
+          ) {
+            const resolved = resolveFootageObject(item as VideoObject);
+            return withFootageClipMetadata(clipped as VideoObject, {
+              sourceInMs: resolved.sourceInMs,
+              sourceOutMs: Math.max(
+                resolved.sourceInMs + 1,
+                resolved.sourceInMs +
+                  Math.max(
+                    MIN_CLIP_DURATION_MS,
+                    durationMs - (resolved.freeze?.durationMs ?? 0),
+                  ) *
+                    resolved.speed,
+              ),
+            }) as CourseObject;
+          }
+          return clipped;
+        }),
       }));
       if (!recordHistory && !get().timelineEditOrigin) get().beginTimelineEdit();
       commit(next);
@@ -998,6 +1119,14 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
         );
       }
     },
+    setObjectColorCorrection: (id, correction) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) =>
+          withObjectColorCorrection(object, correction),
+        ),
+      );
+    },
     updateAudioMetadata: (id, patch) => {
       const { project, currentSceneId } = get();
       commit(
@@ -1054,6 +1183,48 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           ...s,
           objects: s.objects.filter((o) => !isVoiceoverClip(o)),
         })),
+      );
+    },
+    updateFootageMetadata: (id, patch) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "video") return object;
+          const video = object as VideoObject;
+          // Materialize the current trim first, so changing speed,
+          // freeze, volume, crop, or layout never moves the out point
+          // the user already sees on the timeline.
+          const current = resolveFootageObject(video);
+          const materialized = withFootageClipMetadata(video, {
+            sourceInMs: current.sourceInMs,
+            sourceOutMs: current.sourceOutMs,
+          });
+          const updated = withFootageClipMetadata(materialized, patch);
+          const resolved = resolveFootageObject(updated);
+          const next: VideoObject = {
+            ...updated,
+            timing: {
+              ...updated.timing,
+              start: updated.timing?.start ?? 0,
+              duration: resolved.timelineDurationMs / 1000,
+            },
+          };
+          if (patch.pipLayout) {
+            next.position = {
+              ...next.position,
+              ...pipLayoutRect(patch.pipLayout, FOOTAGE_STAGE_W, FOOTAGE_STAGE_H),
+            };
+          }
+          return next as CourseObject;
+        }),
+      );
+    },
+    setObjectTranscript: (id, transcript) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) =>
+          withObjectTranscript(object, transcript),
+        ),
       );
     },
     addAudioVolumeKeyframe: (id, timeMs, decibels) => {
@@ -1153,6 +1324,92 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
           objects: tightenClipSilence(current.objects, id, plan, scene.durationMs),
         })),
       );
+    },
+
+    addCueMarker: (type, atMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const marker = makeCueMarker(type, clampMarkerMs(atMs, scene?.durationMs ?? 0));
+      if (scene) {
+        commit(
+          patchScene(project, currentSceneId, (s) =>
+            withSceneCueMarkers(s, [...sceneCueMarkers(s), marker]),
+          ),
+        );
+      }
+      return marker;
+    },
+    updateCueMarker: (id, patch) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene) return;
+      const markers = sceneCueMarkers(scene).map((marker) =>
+        marker.id === id
+          ? {
+              ...marker,
+              ...patch,
+              id: marker.id,
+              atMs: clampMarkerMs(patch.atMs ?? marker.atMs, scene.durationMs),
+            }
+          : marker,
+      );
+      commit(
+        patchScene(project, currentSceneId, (s) => withSceneCueMarkers(s, markers)),
+      );
+    },
+    removeCueMarker: (id) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchScene(project, currentSceneId, (s) =>
+          withSceneCueMarkers(
+            s,
+            sceneCueMarkers(s).filter((marker) => marker.id !== id),
+          ),
+        ),
+      );
+    },
+
+    setupMulticam: (objectIds) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene) return;
+      const objects = objectIds
+        .map((id) => scene.objects.find((o) => o.id === id))
+        .filter((o): o is CourseObject => Boolean(o && o.type === "video"));
+      // The wizard works on at least two angles; the schema factory
+      // enforces the three angle cap.
+      if (objects.length < 2) return;
+      const group = buildMulticamGroup(objects, scene.durationMs);
+      if (!group) return;
+      commit(patchScene(project, currentSceneId, (s) => withMulticam(s, group)));
+    },
+    setMulticamGroup: (group) => {
+      const { project, currentSceneId } = get();
+      commit(patchScene(project, currentSceneId, (s) => withMulticam(s, group)));
+    },
+    switchMulticamAngle: (atMs, angleId) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const group = scene ? getMulticam(scene) : undefined;
+      if (!scene || !group) return;
+      const next = switchMulticamAngle(group, atMs, angleId, newObjId("mcseg"));
+      if (next === group) return;
+      commit(patchScene(project, currentSceneId, (s) => withMulticam(s, next)));
+    },
+    nudgeMulticamAngle: (angleId, deltaMs) => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      const group = scene ? getMulticam(scene) : undefined;
+      if (!scene || !group) return;
+      const next = nudgeMulticamAngle(group, angleId, deltaMs);
+      if (next === group) return;
+      commit(patchScene(project, currentSceneId, (s) => withMulticam(s, next)));
+    },
+    clearMulticam: () => {
+      const { project, currentSceneId } = get();
+      const scene = project.scenes.find((s) => s.id === currentSceneId);
+      if (!scene || !getMulticam(scene)) return;
+      commit(patchScene(project, currentSceneId, (s) => withMulticam(s, null)));
     },
 
     setCharAnimation: (id, a) => {

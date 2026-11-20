@@ -23,6 +23,8 @@ import { TranslatePanel } from "./components/TranslatePanel";
 import { MediaPanel } from "./components/MediaPanel";
 import { AudioPanel } from "./components/AudioPanel";
 import { RoughCutPanel } from "./components/RoughCutPanel";
+import { FootagePanel } from "./components/FootagePanel";
+import { MulticamPanel } from "./components/MulticamPanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { ScriptImport } from "./components/ScriptImport";
 import { TemplatesPanel } from "./components/TemplatesPanel";
@@ -229,6 +231,8 @@ export function App() {
           <TranslatePanel />
           <AudioPanel tMs={clock.tMs} />
           <RoughCutPanel />
+          <FootagePanel tMs={clock.tMs} />
+          <MulticamPanel tMs={clock.tMs} />
           <LibraryPanel />
         </aside>
       </div>

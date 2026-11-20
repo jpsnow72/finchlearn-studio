@@ -19,6 +19,8 @@ import {
   type TimelineLane,
 } from "../store";
 import { getAudioClipMetadata, volumeToDecibels } from "../audioEditing";
+import { sceneCueMarkers } from "../cuePoints";
+import { CuePoints, CUE_MARKER_LABELS } from "./CuePoints";
 
 const LANE_LABELS: Record<TimelineLane, string> = {
   main: "Main",
@@ -358,8 +360,38 @@ export function Timeline({
               </div>
             </div>
           ))}
+          <div className="timeline-lane timeline-marker-lane" aria-label="Cue points lane">
+            <div className="timeline-lane-name">Cues</div>
+            <div className="timeline-lane-track">
+              {scene && sceneCueMarkers(scene).map((marker) => (
+                <button
+                  key={marker.id ?? `${marker.atMs}-${marker.type}`}
+                  type="button"
+                  className="timeline-marker-chip"
+                  style={{
+                    left: `${sceneDuration ? (marker.atMs / sceneDuration) * 100 : 0}%`,
+                  }}
+                  title={`${CUE_MARKER_LABELS[marker.type]} at ${(marker.atMs / 1000).toFixed(1)}s${marker.label ? `: ${marker.label}` : ""}`}
+                  aria-label={`${CUE_MARKER_LABELS[marker.type]} cue point at ${(marker.atMs / 1000).toFixed(1)} seconds`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPlaying(false);
+                    setTMs(marker.atMs);
+                  }}
+                >
+                  {marker.label ?? CUE_MARKER_LABELS[marker.type]}
+                </button>
+              ))}
+              <div
+                className="timeline-playhead"
+                style={{ left: `${(Math.min(local, sceneDuration) / sceneDuration) * 100}%` }}
+                aria-hidden="true"
+              />
+            </div>
+          </div>
         </div>
       </div>
+      <CuePoints tMs={tMs} setTMs={setTMs} />
       <span className="tl-time muted">
         Export: {(projectTimeline(project).totalMs / 1000).toFixed(1)}s total
       </span>

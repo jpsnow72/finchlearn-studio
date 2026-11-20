@@ -15,12 +15,25 @@ import {
 } from "../store";
 import { StudioObjectRenderer } from "./StudioObjectRenderer";
 import { sceneBackgroundCss } from "../content/bundledContent";
+import { isMulticamObjectVisibleAt } from "../multicam";
 import {
   mergeAnimatedStyle,
+  objectOutsideFrame,
+  projectAspect,
+  PROJECT_ASPECTS,
   SceneTimeContext,
+  stageDimensions,
   timelineStyleFor,
 } from "@finch-studio/animation";
+import { safeZones } from "@finch-studio/schema";
+import { wipeClipPath } from "@finch-studio/motion";
+import {
+  drawOnForObject,
+  sampleDrawOnForObject,
+  whiteboardSurfaceForScene,
+} from "../drawOn";
 
+/** The 16:9 stage size; other aspects use their own stage frame. */
 export const SCENE_W = 1280;
 export const SCENE_H = 720;
 
@@ -33,6 +46,8 @@ export function StudioCanvas({
 }) {
   const scene = useCurrentScene();
   const selected = useSelectedObject();
+  const project = useStudioStore((s) => s.project);
+  const setProjectAspect = useStudioStore((s) => s.setProjectAspect);
   const selectObject = useStudioStore((s) => s.selectObject);
   const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addWaypoint = useStudioStore((s) => s.addWaypoint);
@@ -41,17 +56,25 @@ export function StudioCanvas({
   // Safe zone overlays and alignment guides (issue #13 ergonomics).
   const [showGuides, setShowGuides] = useState(false);
 
-  // Fit the fixed 1280×720 stage into the available width.
+  // The stage frame follows the project aspect (issue #13): the canvas,
+  // the safe-area preview, and exports all use this one frame.
+  const aspect = projectAspect(project);
+  const stage = stageDimensions(project);
+  const stageW = stage.width;
+  const stageH = stage.height;
+  const zones = safeZones(aspect);
+
+  // Fit the stage into the available width.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w > 0) setScale(Math.min(1, w / SCENE_W));
+      if (w > 0) setScale(Math.min(1, w / stageW));
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [stageW]);
 
   const onStageClick = (e: MouseEvent) => {
     if (!pathEdit) return;
@@ -67,11 +90,11 @@ export function StudioCanvas({
 
   if (!scene) return <div className="studio-canvas-empty">No scene</div>;
   const stageStyle = {
-    width: SCENE_W,
-    height: SCENE_H,
+    width: stageW,
+    height: stageH,
     transform: `scale(${scale})`,
     transformOrigin: "top left",
-    background: sceneBackgroundCss(scene.background),
+    background: whiteboardSurfaceForScene(scene) ?? sceneBackgroundCss(scene.background),
   };
   const animatedStageStyle =
     tMs === null ? stageStyle : mergeAnimatedStyle(stageStyle, timelineStyleFor(scene.animations, tMs));
@@ -79,7 +102,7 @@ export function StudioCanvas({
   return (
     <div className="studio-canvas-wrap" ref={wrapRef}>
       <div
-        style={{ width: SCENE_W * scale, height: SCENE_H * scale, overflow: "hidden" }}
+        style={{ width: stageW * scale, height: stageH * scale, overflow: "hidden" }}
       >
         <div
           className={`studio-stage${pathEdit ? " path-edit" : ""}`}
@@ -92,32 +115,67 @@ export function StudioCanvas({
                 if (o.visible === false) return false;
                 const range = timelineClipRange(o, scene.durationMs);
                 const time = tMs ?? 0;
-                return time >= range.startMs && time < range.startMs + range.durationMs;
+                if (!(time >= range.startMs && time < range.startMs + range.durationMs)) {
+                  return false;
+                }
+                // Multicam (#47): only the resolved angle is on stage.
+                if (!isMulticamObjectVisibleAt(scene, o, time)) return false;
+                // Whiteboard draw-on: hidden before the draw and after
+                // an erase, resolved by the shared motion sampler.
+                if (tMs !== null) {
+                  const sample = sampleDrawOnForObject(o, range, tMs);
+                  if (sample && !sample.visible) return false;
+                }
+                return true;
               })
               .map((o) => {
                 const pos = o.position ?? {};
                 const isSel = selectedObjectIds.includes(o.id);
+                // Objects that sit outside the current stage frame stay
+                // in the project and are visibly marked, never hidden.
+                const outside = objectOutsideFrame(o, stage);
                 const objectStyle = {
                   left: pos.x ?? 0,
                   top: pos.y ?? 0,
                   width: pos.w ?? 200,
                   height: pos.h ?? 100,
                 };
+                const range = timelineClipRange(o, scene.durationMs);
+                const drawSample =
+                  tMs === null ? null : sampleDrawOnForObject(o, range, tMs);
+                const drawTreatment = drawOnForObject(o);
+                let style = mergeAnimatedStyle(
+                  objectStyle,
+                  tMs === null ? {} : timelineStyleFor(o.animations, tMs),
+                );
+                if (drawSample && (o.type === "text" || o.type === "image")) {
+                  // Text and images reveal with the wipe that matches
+                  // the shape stroke progress at the same timestamp.
+                  style = { ...style, clipPath: wipeClipPath(drawSample.progress) };
+                }
                 return (
                   <div
                     key={o.id}
-                    className={`studio-obj${isSel ? " selected" : ""}`}
-                    style={mergeAnimatedStyle(
-                      objectStyle,
-                      tMs === null ? {} : timelineStyleFor(o.animations, tMs),
-                    )}
+                    className={`studio-obj${isSel ? " selected" : ""}${outside ? " out-of-frame" : ""}`}
+                    data-out-of-frame={outside || undefined}
+                    style={style}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!pathEdit) selectObject(o.id, e.shiftKey);
                     }}
                   >
-                    <StudioObjectRenderer object={o} />
+                    <StudioObjectRenderer
+                      object={o}
+                      drawOn={
+                        drawSample && drawTreatment
+                          ? { sample: drawSample, treatment: drawTreatment }
+                          : undefined
+                      }
+                    />
                     {isSel && <div className="studio-sel-ring" />}
+                    {outside && (
+                      <div className="studio-oof-badge">Outside frame</div>
+                    )}
                   </div>
                 );
               })}
@@ -133,22 +191,56 @@ export function StudioCanvas({
           </SceneTimeContext.Provider>
           {showGuides && (
             <>
-              <div className="guide-title-safe" title="Title safe area" />
-              <div className="guide-social-safe" title="9:16 social safe zone" />
+              <div
+                className="guide-title-safe"
+                title="Title safe area"
+                style={{
+                  left: `${zones.titleSafe.x * 100}%`,
+                  top: `${zones.titleSafe.y * 100}%`,
+                  width: `${zones.titleSafe.w * 100}%`,
+                  height: `${zones.titleSafe.h * 100}%`,
+                }}
+              />
+              <div
+                className="guide-social-safe"
+                title="Social safe area"
+                style={{
+                  left: `${zones.socialSafe.x * 100}%`,
+                  top: `${zones.socialSafe.y * 100}%`,
+                  width: `${zones.socialSafe.w * 100}%`,
+                  height: `${zones.socialSafe.h * 100}%`,
+                }}
+              />
               <div className="guide-center-v" />
               <div className="guide-center-h" />
             </>
           )}
         </div>
       </div>
-      <button
-        type="button"
-        className="guide-toggle"
-        aria-pressed={showGuides}
-        onClick={() => setShowGuides((v) => !v)}
-      >
-        {showGuides ? "Hide safe zones" : "Show safe zones"}
-      </button>
+      <div className="stage-controls">
+        <div className="aspect-switch" role="group" aria-label="Stage aspect">
+          <span className="aspect-switch-label">Stage aspect</span>
+          {PROJECT_ASPECTS.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={`guide-toggle${value === aspect ? " active" : ""}`}
+              aria-pressed={value === aspect}
+              onClick={() => setProjectAspect(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="guide-toggle"
+          aria-pressed={showGuides}
+          onClick={() => setShowGuides((v) => !v)}
+        >
+          {showGuides ? "Hide safe zones" : "Show safe zones"}
+        </button>
+      </div>
       {pathEdit && (
         <div className="studio-path-hint">
           📍 Click on the stage to drop waypoints for{" "}
