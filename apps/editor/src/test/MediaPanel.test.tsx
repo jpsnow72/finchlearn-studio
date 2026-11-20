@@ -70,3 +70,47 @@ describe("saved scene groups", () => {
     expect(useStudioStore.getState().project.scenes[0].objects).toHaveLength(initialCount + 2);
   });
 });
+
+describe("video by URL", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    useStudioStore.getState().newProject();
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("adds a video object with the pasted URL as its resource", () => {
+    act(() => root.render(<MediaPanel />));
+    const clickButton = (label: string) => {
+      const button = [...container.querySelectorAll("button")].find((item) =>
+        item.textContent?.includes(label),
+      );
+      if (!button) throw new Error(`Missing ${label} button`);
+      act(() => button.click());
+    };
+    clickButton("My media");
+    const input = container.querySelector<HTMLInputElement>('[aria-label="Video URL"]');
+    if (!input) throw new Error("Missing video URL input");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    act(() => {
+      setter?.call(input, "https://cdn.example/media/intro.mp4");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    clickButton("Add video");
+    const objects = useStudioStore.getState().project.scenes[0].objects as {
+      type: string;
+      resource?: string;
+      name?: string;
+    }[];
+    const added = objects.find((o) => o.type === "video");
+    expect(added?.resource).toBe("https://cdn.example/media/intro.mp4");
+    expect(added?.name).toBe("intro.mp4");
+    expect(container.textContent).toContain('Added "intro.mp4" to the scene.');
+  });
+});
