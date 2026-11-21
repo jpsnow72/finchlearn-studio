@@ -72,10 +72,12 @@ import {
   audioRoleForObject,
   getAudioClipMetadata,
   getCleanVoiceSettings,
+  getProjectDucking,
   isDescriptionObject,
 } from "./audioEditing";
 import {
   connectCleanVoice,
+  duckFactorFor,
   encodeWav,
   planAudioExport,
   type AudioClip as EngineAudioClip,
@@ -869,7 +871,10 @@ async function renderProjectAudio(
       ? descriptionWindows
       : [];
 
-  const DUCK = 0.3;
+  // Ducking depth from the project setting (issue #28): Off leaves
+  // under-voice tracks untouched; Light, Medium, and Strong drop them
+  // 6, 12, and 18 dB under voice via the shared audio engine levels.
+  const DUCK = duckFactorFor(getProjectDucking(project));
   const DUCK_RAMP = 0.15;
   const automateDuck = (
     param: AudioParam,

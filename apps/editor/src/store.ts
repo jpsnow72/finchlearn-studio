@@ -38,8 +38,10 @@ import {
   tightenClipSilence,
   withAudioClipMetadata,
   withCleanVoiceOnAllAudioClips,
+  withProjectDucking,
   type AudioClipMetadata,
   type CleanVoiceSettings,
+  type DuckingLevel,
 } from "./audioEditing";
 import {
   copyCaptionEditsForScene,
@@ -407,6 +409,7 @@ interface VideoStudioState {
   setProjectName: (name: string) => void;
   updateCaption: (sceneId: string, lineId: string, patch: CaptionEdit) => void;
   setCaptionStyle: (patch: Partial<CaptionStyle>) => void;
+  setProjectDucking: (level: DuckingLevel) => void;
   setProjectAspect: (aspect: ProjectAspect) => void;
   duplicateAtAspect: (aspect: ProjectAspect) => void;
   // scenes
@@ -816,6 +819,8 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
     setCaptionStyle: (patch) =>
       commit(withCaptionStyle(get().project, patch)),
+    setProjectDucking: (level) =>
+      commit(withProjectDucking(get().project, level)),
     setProjectAspect: (aspect) => {
       const { project } = get();
       if (projectAspect(project) === aspect) return;

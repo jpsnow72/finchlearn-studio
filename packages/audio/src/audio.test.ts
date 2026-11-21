@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { clipGainAt, dbToGain, DEFAULT_DUCKING, voiceActivityAt, type AudioClip } from "./audio.js";
+import {
+  clipGainAt,
+  dbToGain,
+  DEFAULT_DUCKING,
+  duckFactorFor,
+  duckingSettingsFor,
+  voiceActivityAt,
+  type AudioClip,
+} from "./audio.js";
 
 const voice: AudioClip = { id: "v", assetR2Key: "a/v.mp3", role: "voice", startMs: 1000, durationMs: 2000, sourceInMs: 0, gain: 1, fadeInMs: 0, fadeOutMs: 0 };
 const music: AudioClip = { id: "m", assetR2Key: "a/m.mp3", role: "music", startMs: 0, durationMs: 10000, sourceInMs: 0, gain: 0.8, fadeInMs: 0, fadeOutMs: 0 };
+
+describe("ducking levels (#28)", () => {
+  it("maps levels to the spec depths", () => {
+    expect(duckingSettingsFor("off")).toBeNull();
+    expect(duckingSettingsFor("light")?.duckDb).toBe(6);
+    expect(duckingSettingsFor("medium")?.duckDb).toBe(12);
+    expect(duckingSettingsFor("strong")?.duckDb).toBe(18);
+  });
+  it("converts levels to linear duck factors", () => {
+    expect(duckFactorFor("off")).toBe(1);
+    expect(duckFactorFor("light")).toBeCloseTo(dbToGain(-6), 5);
+    expect(duckFactorFor("medium")).toBeCloseTo(dbToGain(-12), 5);
+    expect(duckFactorFor("strong")).toBeCloseTo(dbToGain(-18), 5);
+  });
+});
 
 describe("ducking", () => {
   it("music sits under voice by the duck amount", () => {

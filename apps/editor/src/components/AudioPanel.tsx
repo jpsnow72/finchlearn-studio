@@ -21,7 +21,9 @@ import {
   audioRoleForObject,
   getAudioClipMetadata,
   getCleanVoiceSettings,
+  getProjectDucking,
   type AudioClipRole,
+  type DuckingLevel,
 } from "../audioEditing";
 import {
   playCleanVoicePreview,
@@ -88,6 +90,9 @@ export function AudioPanel({ tMs }: { tMs: number }) {
   const [minSilenceMs, setMinSilenceMs] = useState(DEFAULT_SILENCE_OPTIONS.minSilenceMs);
   const [keepPauseMs, setKeepPauseMs] = useState(DEFAULT_SILENCE_OPTIONS.keepPauseMs);
   const setCleanVoiceOnAllClips = useStudioStore((s) => s.setCleanVoiceOnAllClips);
+  const project = useStudioStore((s) => s.project);
+  const setProjectDucking = useStudioStore((s) => s.setProjectDucking);
+  const ducking = getProjectDucking(project);
   const [compareModes, setCompareModes] = useState<Record<string, CleanVoiceCompareMode>>({});
   const [previewStatus, setPreviewStatus] = useState<Record<string, string>>({});
 
@@ -108,6 +113,25 @@ export function AudioPanel({ tMs }: { tMs: number }) {
   return (
     <div className="panel">
       <div className="panel-title">Audio</div>
+      <div className="audio-clip">
+        <div className="audio-clip-name">Ducking</div>
+        <label>
+          Music and effects under voice
+          <select
+            aria-label="Ducking level"
+            value={ducking}
+            onChange={(e) => setProjectDucking(e.target.value as DuckingLevel)}
+          >
+            <option value="off">Off</option>
+            <option value="light">Light (-6 dB)</option>
+            <option value="medium">Medium (-12 dB)</option>
+            <option value="strong">Strong (-18 dB)</option>
+          </select>
+        </label>
+        <p className="muted">
+          Applies to the whole project in previews and exports.
+        </p>
+      </div>
       {clips.length === 0 && <p className="muted">No audio clips in this scene yet.</p>}
       {clips.length > 0 && (
         <div className="audio-clip">

@@ -701,3 +701,15 @@ describe("aspect duplication (#62)", () => {
     expect(useStudioStore.getState().project.id).toBe(before);
   });
 });
+
+describe("project ducking (#28)", () => {
+  it("defaults to medium and round-trips a new level", async () => {
+    const { getProjectDucking } = await import("../audioEditing.js");
+    const s = useStudioStore.getState();
+    expect(getProjectDucking(s.project)).toBe("medium");
+    s.setProjectDucking("strong");
+    expect(getProjectDucking(useStudioStore.getState().project)).toBe("strong");
+    s.setProjectDucking("off");
+    expect(getProjectDucking(useStudioStore.getState().project)).toBe("off");
+  });
+});

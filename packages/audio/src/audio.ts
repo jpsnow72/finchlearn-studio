@@ -57,6 +57,36 @@ export const DEFAULT_DUCKING: DuckingSettings = {
   releaseMs: 350,
 };
 
+/** User-facing ducking levels (issue #28): a toggle plus three depths. */
+export type DuckingLevel = "off" | "light" | "medium" | "strong";
+
+export const DUCKING_LEVELS: readonly DuckingLevel[] = [
+  "off",
+  "light",
+  "medium",
+  "strong",
+];
+
+export const DUCKING_LEVEL_DB: Record<Exclude<DuckingLevel, "off">, number> = {
+  light: 6,
+  medium: 12,
+  strong: 18,
+};
+
+export const DEFAULT_DUCKING_LEVEL: DuckingLevel = "medium";
+
+/** Settings for a level, or null when ducking is off. */
+export function duckingSettingsFor(level: DuckingLevel): DuckingSettings | null {
+  if (level === "off") return null;
+  return { ...DEFAULT_DUCKING, duckDb: DUCKING_LEVEL_DB[level] };
+}
+
+/** Linear gain an under-voice track drops to for a level (1 when off). */
+export function duckFactorFor(level: DuckingLevel): number {
+  const settings = duckingSettingsFor(level);
+  return settings ? dbToGain(-settings.duckDb) : 1;
+}
+
 export function dbToGain(db: number): number {
   return Math.pow(10, db / 20);
 }
