@@ -51,6 +51,7 @@ export function StudioCanvas({
   const selected = useSelectedObject();
   const project = useStudioStore((s) => s.project);
   const setProjectAspect = useStudioStore((s) => s.setProjectAspect);
+  const duplicateAtAspect = useStudioStore((s) => s.duplicateAtAspect);
   const selectObject = useStudioStore((s) => s.selectObject);
   const selectedObjectIds = useStudioStore((s) => s.selectedObjectIds);
   const addWaypoint = useStudioStore((s) => s.addWaypoint);
@@ -246,6 +247,19 @@ export function StudioCanvas({
               className={`guide-toggle${value === aspect ? " active" : ""}`}
               aria-pressed={value === aspect}
               onClick={() => setProjectAspect(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <div className="aspect-switch" role="group" aria-label="Duplicate at aspect">
+          <span className="aspect-switch-label">Duplicate at</span>
+          {PROJECT_ASPECTS.filter((value) => value !== aspect).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="guide-toggle"
+              onClick={() => duplicateAtAspect(value)}
             >
               {value}
             </button>

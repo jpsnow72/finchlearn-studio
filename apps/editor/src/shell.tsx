@@ -17,7 +17,7 @@
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { currentSession, signIn, signInWithGoogle, signOut, supabaseEnabled } from "./supabase";
-import { useStudioStore, makeStarterProject } from "./store";
+import { useStudioStore, makeStarterProject, readProjectLibrary, libraryProject } from "./store";
 import {
   fetchCloudProject,
   listCloudExports,
@@ -306,10 +306,29 @@ export function FrontPage({
       live = false;
     };
   }, []);
+  const library = readProjectLibrary();
   const projects: SavedProject[] = [
     { id: current.id, name: current.name, updatedAt: new Date().toISOString() },
-    ...listed.filter((p) => p.id !== current.id),
+    ...library
+      .filter((e) => e.project.id !== current.id)
+      .map((e) => ({ id: e.project.id, name: e.project.name, updatedAt: e.updatedAt })),
+    ...listed.filter(
+      (p) => p.id !== current.id && !library.some((e) => e.project.id === p.id),
+    ),
   ];
+  const openLocalProject = (id: string) => {
+    if (id === current.id) {
+      onOpenEditor();
+      return;
+    }
+    const data = libraryProject(id);
+    if (data) {
+      loadProject(data);
+      onOpenEditor();
+    } else {
+      setRestoreNote("That project is not stored on this device. Check the cloud list below.");
+    }
+  };
   const cloudOnlyProjects = cloudProjects.filter(
     (cp) => !projects.some((p) => p.id === cp.id),
   );
@@ -346,7 +365,7 @@ export function FrontPage({
               <div className="shell-card" key={p.id}>
                 <strong>{p.name}</strong>
                 <div className="shell-empty">Edited {new Date(p.updatedAt).toLocaleDateString()}</div>
-                <button type="button" onClick={onOpenEditor}>Open</button>
+                <button type="button" onClick={() => openLocalProject(p.id)}>Open</button>
               </div>
             ))}
             {cloudOnlyProjects.map((p) => (

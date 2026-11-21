@@ -14,6 +14,8 @@ import {
   makeStudioVideo,
   timelineLaneForObject,
   makeStudioVoiceover,
+  readProjectLibrary,
+  libraryProject,
 } from "../store.js";
 import { getCaptionCues, getCaptionStyle } from "../captions.js";
 import { formatCaptions } from "../exportPresets.js";
@@ -673,5 +675,29 @@ describe("whiteboard draw-on (#52)", () => {
     expect(
       useStudioStore.getState().project.scenes[0].extensions?.["x-finch-studio"]?.whiteboard,
     ).toBeUndefined();
+  });
+});
+
+describe("aspect duplication (#62)", () => {
+  it("duplicates at a new aspect under a fresh id and keeps the original", () => {
+    const s = useStudioStore.getState();
+    const original = s.project;
+    expect(original.aspect ?? "16:9").toBe("16:9");
+    s.duplicateAtAspect("9:16");
+    const after = useStudioStore.getState().project;
+    expect(after.id).not.toBe(original.id);
+    expect(after.aspect).toBe("9:16");
+    expect(after.name).toBe(`${original.name} (9:16)`);
+    // The original survives untouched in the local library.
+    const kept = libraryProject(original.id);
+    expect(kept?.aspect ?? "16:9").toBe("16:9");
+    expect(readProjectLibrary().some((e) => e.project.id === after.id)).toBe(true);
+  });
+
+  it("is a no-op at the current aspect", () => {
+    const s = useStudioStore.getState();
+    const before = s.project.id;
+    s.duplicateAtAspect("16:9");
+    expect(useStudioStore.getState().project.id).toBe(before);
   });
 });
