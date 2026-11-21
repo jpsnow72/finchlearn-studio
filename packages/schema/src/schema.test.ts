@@ -105,7 +105,12 @@ describe("OCF mapping", () => {
     const back = ocfToStudio(project);
     expect(validateStudioProject(back)).toEqual([]);
     expect(back.scenes[0].elements.some((e) => e.kind === "footage")).toBe(true);
-    expect(back.scenes[0].elements.some((e) => e.kind === "chart")).toBe(false);
+    expect(back.scenes[0].elements.some((e) => e.kind === "chart")).toBe(true);
+    expect(back.scenes[0].elements.find((e) => e.kind === "chart")).toMatchObject({
+      kind: "chart",
+      chartType: "bar",
+      csv: "a,b\n1,2",
+    });
     expect(back.scenes[0].effects).toEqual([{ name: "fadeIn", start: 100, duration: 400 }]);
     expect(back.scenes[0].elements.find((e) => e.id === "el-2")?.effects).toEqual([
       { name: "emphasisPulse", start: 900, duration: 350 },
@@ -507,4 +512,3 @@ describe("lottie elements (#97, #99, #100)", () => {
     });
   });
 });
-

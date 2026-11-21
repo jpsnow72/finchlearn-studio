@@ -279,6 +279,23 @@ export function makeStudioShape(): CourseObject {
   } as CourseObject;
 }
 
+export function makeStudioChart(
+  chartType: "bar" | "line" | "pie" = "bar",
+  csv = "Label,Value\nQ1,40\nQ2,65\nQ3,80",
+): CourseObject {
+  return {
+    id: newObjId("ch"),
+    type: "chart",
+    name: `${chartType[0].toUpperCase()}${chartType.slice(1)} chart`,
+    position: { x: 300, y: 150, w: 640, h: 360 },
+    chart: {
+      chartType,
+      csv,
+      colors: ["var(--accent)", "var(--accent2)", "var(--text)", "var(--muted)"],
+    },
+  } as CourseObject;
+}
+
 const STORAGE_KEY = "ocf.video-studio.project.v1";
 
 function loadStored(): VideoProject | null {

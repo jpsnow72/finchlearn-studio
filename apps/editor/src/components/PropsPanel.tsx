@@ -13,6 +13,7 @@ import type {
   CharacterObject,
   CharacterSpeech,
   CourseObject,
+  ChartObject,
   KenBurnsFrame,
   LottieObject,
 } from "@finch-studio/core";
@@ -57,6 +58,51 @@ import {
 } from "../lottie/lottieObject";
 
 let speechCounter = 0;
+
+function ChartEditor({
+  object,
+  onChange,
+}: {
+  object: ChartObject;
+  onChange: (chart: NonNullable<ChartObject["chart"]>) => void;
+}) {
+  const chart = object.chart;
+  return (
+    <>
+      <label className="field">
+        <span>Chart type</span>
+        <select
+          value={chart?.chartType ?? "bar"}
+          onChange={(e) =>
+            onChange({
+              ...(chart ?? { chartType: "bar" }),
+              chartType: e.target.value as "bar" | "line" | "pie",
+            })
+          }
+        >
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="pie">Pie</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Paste data table</span>
+        <textarea
+          key={`${object.id}-${chart?.csv ?? ""}`}
+          defaultValue={chart?.csv ?? ""}
+          rows={7}
+          onBlur={(e) =>
+            onChange({
+              ...(chart ?? { chartType: "bar" }),
+              csv: e.target.value,
+            })
+          }
+        />
+      </label>
+      <p className="muted">Use labels in the first column and values in the remaining columns.</p>
+    </>
+  );
+}
 
 export function PropsPanel({
   pathEdit,
@@ -187,6 +233,10 @@ export function PropsPanel({
           </label>
         ))}
       </div>
+
+      {obj.type === "chart" && (
+        <ChartEditor object={obj as ChartObject} onChange={(chart) => updateObject(obj.id, { chart } as never)} />
+      )}
 
       {(obj.type === "shape" || obj.type === "text" || obj.type === "image") && (
         <DrawOnEditor

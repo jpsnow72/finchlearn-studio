@@ -41,6 +41,7 @@
  */
 import type {
   CharacterObject,
+  ChartObject,
   CourseObject,
   CuePoint,
   ImageObject,
@@ -404,6 +405,16 @@ function elementToOCF(el: SceneElement): CourseObject | null {
         speed: el.speed,
       } satisfies LottieObject;
     case "chart":
+      return {
+        ...base,
+        type: "chart",
+        chart: {
+          chartType: el.chartType,
+          csv: el.csv,
+          labels: [],
+          datasets: [],
+        },
+      } satisfies ChartObject;
     case "audio":
       return null; // carried by the sidecar only
   }
@@ -556,6 +567,17 @@ function ocfToElement(obj: CourseObject): SceneElement | null {
         speed: l.speed,
       };
       return el;
+    }
+    case "chart": {
+      const c = obj as ChartObject;
+      const chart = c.chart;
+      if (!chart) return null;
+      return {
+        ...base,
+        kind: "chart",
+        chartType: chart.chartType,
+        csv: chart.csv ?? "",
+      };
     }
     default:
       return null;
