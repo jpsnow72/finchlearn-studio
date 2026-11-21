@@ -12,6 +12,38 @@ describe("chart elements", () => {
     expect(parseChartTable("Label\tValue\nOne\t10\nTwo\t25").datasets[0].values).toEqual([10, 25]);
   });
 
+  it("parses pasted tables with CR or CRLF row separators (issue #116)", () => {
+    // A CR-separated paste used to collapse into one line
+    // ("Month,SalesJan,10Feb,25Mar,18") and parse as a header-only table.
+    const expected = {
+      labels: ["Jan", "Feb", "Mar"],
+      datasets: [{ label: "Sales", values: [10, 25, 18] }],
+    };
+    expect(parseChartTable("Month,Sales\rJan,10\rFeb,25\rMar,18")).toEqual(expected);
+    expect(parseChartTable("Month,Sales\r\nJan,10\r\nFeb,25\r\nMar,18")).toEqual(expected);
+    expect(parseChartTable("Month,Sales\nJan,10\nFeb,25\nMar,18")).toEqual(expected);
+    expect(parseChartTable("Month\tSales\rJan\t10\rFeb\t25\rMar\t18")).toEqual(expected);
+  });
+
+  it("renders a chart from a one-shot pasted table instead of the no-data placeholder", () => {
+    const pasted = makeStudioChart("bar") as Extract<
+      ReturnType<typeof makeStudioChart>,
+      { type: "chart" }
+    >;
+    const withData = {
+      ...pasted,
+      chart: {
+        ...pasted.chart,
+        csv: "Month,Sales\rJan,10\rFeb,25\rMar,18",
+      },
+    } as typeof pasted;
+    const svg = chartSvg(withData, 1);
+    expect(svg).not.toContain("Paste chart data");
+    expect(svg).toContain("Jan: 10");
+    expect(svg).toContain("Feb: 25");
+    expect(svg).toContain("Mar: 18");
+  });
+
   it("adds bar, line, and pie chart objects through the store", () => {
     useStudioStore.getState().newProject();
     const bar = makeStudioChart("bar");

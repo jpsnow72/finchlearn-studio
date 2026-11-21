@@ -13,9 +13,12 @@ export const CHART_COLORS = [
 ] as const;
 
 export function parseChartTable(csv: string): ChartData {
+  // Row separators vary by paste source: LF, CRLF, or CR alone. Split on
+  // all three. Deleting CRs instead (the old behavior) collapsed a
+  // CR-separated table into a single line, which parsed as a header-only
+  // table and left the chart showing the no-data placeholder (issue #116).
   const rows = csv
-    .replace(/\r/g, "")
-    .split("\n")
+    .split(/\r\n|\r|\n/)
     .map((line) => line.includes("\t") ? line.split("\t") : line.split(","))
     .map((row) => row.map((cell) => cell.trim()))
     .filter((row) => row.length > 0);
