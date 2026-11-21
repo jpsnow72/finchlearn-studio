@@ -1,15 +1,18 @@
 import { newVideoId } from "@finch-studio/animation";
-import type { AudioObject, CourseObject, Extensions } from "@finch-studio/core";
+import type { AudioObject, CourseObject, Extensions, VideoProject } from "@finch-studio/core";
 import {
   planSilenceTightening,
   type SilenceOptions,
   type SilenceTighteningPlan,
   DEFAULT_CLEAN_VOICE,
+  DEFAULT_DUCKING_LEVEL,
+  DUCKING_LEVELS,
   normalizeCleanVoiceSettings,
   type CleanVoiceSettings,
+  type DuckingLevel,
 } from "@finch-studio/audio";
 
-export type { CleanVoiceSettings };
+export type { CleanVoiceSettings, DuckingLevel };
 
 export interface AudioVolumeKeyframe {
   timeMs: number;
@@ -411,4 +414,40 @@ export function rippleDeleteAudioRegion(
     }
     return [];
   });
+}
+
+/**
+ * Project-level ducking (issue #28): one setting for the whole project,
+ * stored in the x-finch-studio extension like the caption style. The
+ * export mix reads it through the shared @finch-studio/audio levels, so
+ * the depth the user picks is the depth the render applies.
+ */
+const STUDIO_EXTENSION = "x-finch-studio";
+
+interface ProjectAudioExtension {
+  ducking?: DuckingLevel;
+  [key: string]: unknown;
+}
+
+function projectAudioExtension(project: VideoProject): ProjectAudioExtension {
+  const raw = project.extensions?.[STUDIO_EXTENSION];
+  return raw && typeof raw === "object" ? (raw as ProjectAudioExtension) : {};
+}
+
+export function getProjectDucking(project: VideoProject): DuckingLevel {
+  const level = projectAudioExtension(project).ducking;
+  return level && DUCKING_LEVELS.includes(level) ? level : DEFAULT_DUCKING_LEVEL;
+}
+
+export function withProjectDucking(
+  project: VideoProject,
+  level: DuckingLevel,
+): VideoProject {
+  return {
+    ...project,
+    extensions: {
+      ...project.extensions,
+      [STUDIO_EXTENSION]: { ...projectAudioExtension(project), ducking: level },
+    },
+  };
 }

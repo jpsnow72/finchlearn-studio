@@ -38,8 +38,10 @@ import {
   tightenClipSilence,
   withAudioClipMetadata,
   withCleanVoiceOnAllAudioClips,
+  withProjectDucking,
   type AudioClipMetadata,
   type CleanVoiceSettings,
+  type DuckingLevel,
 } from "./audioEditing";
 import {
   copyCaptionEditsForScene,
@@ -317,6 +319,53 @@ function persist(project: VideoProject): void {
   } catch {
     // storage full / unavailable — non-fatal
   }
+  saveToLibrary(project);
+}
+
+/**
+ * Local project library (issue #62): full project JSON for every project
+ * touched on this device, so the hub can reopen any of them, not just the
+ * current one, and aspect duplicates survive signed out. Best effort:
+ * oversized projects (heavy data URLs) stay cloud-only, the registry is
+ * capped, and every write is failure-tolerant.
+ */
+const LIBRARY_KEY = "finch-studio.project-library.v1";
+const LIBRARY_CAP = 12;
+const LIBRARY_MAX_BYTES = 1_500_000;
+
+export interface LibraryEntry {
+  project: VideoProject;
+  updatedAt: string;
+}
+
+export function readProjectLibrary(): LibraryEntry[] {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LibraryEntry[];
+    return Array.isArray(parsed) ? parsed.filter((e) => e?.project?.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function libraryProject(id: string): VideoProject | null {
+  return readProjectLibrary().find((e) => e.project.id === id)?.project ?? null;
+}
+
+function saveToLibrary(project: VideoProject): void {
+  try {
+    const json = JSON.stringify(project);
+    if (json.length > LIBRARY_MAX_BYTES) return;
+    const rest = readProjectLibrary().filter((e) => e.project.id !== project.id);
+    const entries = [
+      { project, updatedAt: new Date().toISOString() },
+      ...rest,
+    ].slice(0, LIBRARY_CAP);
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(entries));
+  } catch {
+    // storage full / unavailable — non-fatal
+  }
 }
 
 interface TtsSettings {
@@ -360,7 +409,9 @@ interface VideoStudioState {
   setProjectName: (name: string) => void;
   updateCaption: (sceneId: string, lineId: string, patch: CaptionEdit) => void;
   setCaptionStyle: (patch: Partial<CaptionStyle>) => void;
+  setProjectDucking: (level: DuckingLevel) => void;
   setProjectAspect: (aspect: ProjectAspect) => void;
+  duplicateAtAspect: (aspect: ProjectAspect) => void;
   // scenes
   addScene: () => void;
   duplicateScene: (id: string) => void;
@@ -768,12 +819,32 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
     },
     setCaptionStyle: (patch) =>
       commit(withCaptionStyle(get().project, patch)),
+    setProjectDucking: (level) =>
+      commit(withProjectDucking(get().project, level)),
     setProjectAspect: (aspect) => {
       const { project } = get();
       if (projectAspect(project) === aspect) return;
       // In-place reframe (issue #13): elements scale and clamp inside
       // the new frame, nothing is dropped; the switch is one undo step.
       commit(reframeProjectForAspect(project, aspect));
+    },
+
+    duplicateAtAspect: (aspect) => {
+      const { project } = get();
+      if (projectAspect(project) === aspect) return;
+      // Aspect duplication (issue #62): the original stays untouched in
+      // the library (and the cloud, via the sync effect); the reframed
+      // clone becomes the current project under a fresh id.
+      const clone = reframeProjectForAspect(
+        JSON.parse(JSON.stringify(project)) as VideoProject,
+        aspect,
+      );
+      clone.id = newObjId("vproj");
+      clone.name = `${project.name} (${aspect})`;
+      saveToLibrary(project);
+      saveToLibrary(clone);
+      get().loadProject(clone);
+      persist(clone);
     },
 
     addScene: () => {
