@@ -91,6 +91,20 @@ function ChartEditor({
           key={`${object.id}-${chart?.csv ?? ""}`}
           defaultValue={chart?.csv ?? ""}
           rows={7}
+          onPaste={(e) => {
+            // Commit a one-shot paste immediately (issue #116): the chart
+            // updates from the pasted table without waiting for blur, so a
+            // pasted table can never sit uncommitted behind the no-data
+            // placeholder. Deferred read: the browser inserts the pasted
+            // text after the paste event, so read the field in a timer.
+            const field = e.currentTarget;
+            setTimeout(() => {
+              onChange({
+                ...(chart ?? { chartType: "bar" }),
+                csv: field.value,
+              });
+            }, 0);
+          }}
           onBlur={(e) =>
             onChange({
               ...(chart ?? { chartType: "bar" }),
