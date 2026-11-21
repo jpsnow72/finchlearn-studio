@@ -9,7 +9,7 @@
  * Direction A and B style families.
  */
 import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import type { CharacterObject, CourseObject, LottieObject, VideoObject } from "@finch-studio/core";
+import type { CharacterObject, ChartObject, CourseObject, LottieObject, VideoObject } from "@finch-studio/core";
 import {
   quantizeMsToFps,
   renderLottieSvg,
@@ -50,6 +50,7 @@ import {
   getObjectColorCorrection,
   isNeutralColorCorrection,
 } from "../colorCorrection";
+import { chartProgress, chartSvg } from "../chart";
 
 /** Stable, attribute-safe SVG filter id for an object's correction. */
 export function colorFilterIdFor(objectId: string): string {
@@ -333,6 +334,18 @@ function LottieView({ object }: { object: LottieObject }) {
   );
 }
 
+function ChartView({ object }: { object: ChartObject }) {
+  const tMs = useContext(SceneTimeContext);
+  const progress = chartProgress(object, tMs ?? 0);
+  return (
+    <div
+      style={{ width: "100%", height: "100%" }}
+      aria-label={object.name ?? "Chart"}
+      dangerouslySetInnerHTML={{ __html: chartSvg(object, progress) }}
+    />
+  );
+}
+
 
 export function StudioObjectRenderer({
   object,
@@ -346,6 +359,8 @@ export function StudioObjectRenderer({
       return <CharacterView object={object} />;
     case "lottie":
       return <LottieView object={object as LottieObject} />;
+    case "chart":
+      return <ChartView object={object as ChartObject} />;
     case "video":
       return <FootageView object={object as VideoObject} />;
     case "text":

@@ -27,11 +27,13 @@
  */
 import type {
   CharacterObject,
+  ChartObject,
   CourseObject,
   LottieObject,
   VideoObject,
   VideoProject,
 } from "@finch-studio/core";
+import { chartProgress, drawChartCanvas } from "./chart";
 import { cropRectToPixels, footageSourceAt } from "@finch-studio/schema";
 import {
   footageClipStartMs,
@@ -660,6 +662,14 @@ function drawObject(
         dh,
       );
       ctx.restore();
+      break;
+    }
+    case "chart": {
+      drawChartCanvas(
+        ctx,
+        o as ChartObject,
+        chartProgress(o, tMs),
+      );
       break;
     }
     case "shape": {

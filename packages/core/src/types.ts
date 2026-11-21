@@ -1277,6 +1277,10 @@ export interface ChartObject extends ObjectBase {
     chartType: "bar" | "line" | "pie";
     labels?: string[];
     datasets?: ChartDataset[];
+    /** Original pasted table. Additive so charts round trip without losing CSV text. */
+    csv?: string;
+    /** Optional brand palette. The editor supplies theme tokens by default. */
+    colors?: string[];
   };
 }
 

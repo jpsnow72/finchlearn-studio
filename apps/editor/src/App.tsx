@@ -32,7 +32,7 @@ import { TemplatesPanel } from "./components/TemplatesPanel";
 import { MotionGraphicsPanel } from "./components/MotionGraphicsPanel";
 import { CaptionsPanel } from "./components/CaptionsPanel";
 import { Timeline } from "./components/Timeline";
-import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, characterVoiceId, isVoiceoverClip } from "./store";
+import { useStudioStore, useCurrentScene, makeStudioShape, makeStudioText, makeStudioChart, characterVoiceId, isVoiceoverClip } from "./store";
 import { narrationTts } from "./narrationProvider";
 import { syncProjectToCloud } from "./cloud";
 
@@ -258,6 +258,15 @@ function ObjectAdder() {
       </button>
       <button type="button" onClick={() => addObject(makeStudioShape())}>
         ▢ Shape
+      </button>
+      <button type="button" onClick={() => addObject(makeStudioChart("bar"))}>
+        Bar chart
+      </button>
+      <button type="button" onClick={() => addObject(makeStudioChart("line"))}>
+        Line chart
+      </button>
+      <button type="button" onClick={() => addObject(makeStudioChart("pie"))}>
+        Pie chart
       </button>
     </div>
   );
