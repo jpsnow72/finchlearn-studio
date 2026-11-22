@@ -349,7 +349,12 @@ input[type="range"] { accent-color: var(--accent); }
 .guide-social-safe { position: absolute; border: 1px dashed rgba(16,185,129,.8); pointer-events: none; }
 .guide-center-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 0; border-left: 1px dotted rgba(239,68,68,.6); pointer-events: none; }
 .guide-center-h { position: absolute; top: 50%; left: 0; right: 0; height: 0; border-top: 1px dotted rgba(239,68,68,.6); pointer-events: none; }
-.guide-toggle { margin-top: 8px; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border, #d4d4d8); background: var(--surface, #fff); cursor: pointer; }
+/* The toggle surface is white (the --surface token is not defined in
+   this theme, so the fallback paints) and the text cannot inherit the
+   dark theme's --text (#e8eaf0 on #fff was 1.2:1, issues
+   #178/#193/#194/#195): bind it to the near-black token --bg (#14161c
+   on #fff is 18.08:1). */
+.guide-toggle { margin-top: 8px; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border, #d4d4d8); background: var(--surface, #fff); color: var(--bg); cursor: pointer; }
 
 /* Stage aspect switcher and out-of-frame marking (issue #13) */
 .stage-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
