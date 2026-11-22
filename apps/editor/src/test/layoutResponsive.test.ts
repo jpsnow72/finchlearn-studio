@@ -58,3 +58,30 @@ describe("studio editor narrow viewport layout", () => {
     );
   });
 });
+
+describe("studio editor scene strip overflow (issues #162, #132, #171, #173, #176)", () => {
+  const desktop = CSS.slice(0, CSS.lastIndexOf("@media (max-width: 820px)"));
+
+  it("clips document level horizontal overflow at every width, not just narrow", () => {
+    // Round 2 re-audit: at 1024px the scene strip still drove a 39px
+    // document horizontal scrollbar, above the 820px breakpoint.
+    expect(desktop).toContain(
+      ".studio { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow-x: clip; }",
+    );
+  });
+
+  it("constrains the scene strip to its container and scrolls it internally", () => {
+    expect(desktop).toContain(
+      ".scene-manager { margin: 10px 12px 0; padding: 8px 12px; min-width: 0; }",
+    );
+    expect(desktop).toContain("overflow-x: auto; min-width: 0; max-width: 100%; }");
+    expect(desktop).toContain(".scene-item { flex: 0 0 190px;");
+  });
+
+  it("wraps scene cards on narrow viewports instead of clipping one mid-item", () => {
+    const block = narrowBlock();
+    expect(block).toContain(".scene-list { flex-wrap: wrap; overflow-x: visible; }");
+    expect(block).toContain(".scene-item { flex: 1 1 140px; }");
+    expect(block).toContain(".scene-seam { flex: 1 1 100px; }");
+  });
+});
