@@ -303,7 +303,7 @@ input[type="range"] { accent-color: var(--accent); }
   position: absolute; inset-block: 0; background: var(--accent2);
   opacity: 0.55; pointer-events: none;
 }
-.audio-clip {
+.timeline-audio-lane .audio-clip {
   position: absolute; inset-block: 0; min-width: 1px; overflow: hidden;
   border: 1px solid var(--accent2); border-radius: 5px;
   background: var(--bg3); color: var(--accent);
@@ -390,7 +390,7 @@ input[type="range"] { accent-color: var(--accent); }
 .media-thumb.prop-thumb img { object-fit: contain; }
 .media-thumb.bg-thumb img { object-fit: cover; }
 .media-thumb span { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.audio-clip { border-top: 1px solid var(--border, #ddd); padding: 6px 0; }
+.audio-clip { position: static; border-top: 1px solid var(--border, #ddd); padding: 6px 0; }
 .audio-clip label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 4px 0; }
 .audio-clip input[type="number"] { width: 80px; }
 .audio-kf-row { display: flex; gap: 6px; align-items: center; }
