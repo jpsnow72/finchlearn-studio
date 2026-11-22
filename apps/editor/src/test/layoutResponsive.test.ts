@@ -80,8 +80,36 @@ describe("studio editor scene strip overflow (issues #162, #132, #171, #173, #17
 
   it("wraps scene cards on narrow viewports instead of clipping one mid-item", () => {
     const block = narrowBlock();
-    expect(block).toContain(".scene-list { flex-wrap: wrap; overflow-x: visible; }");
+    expect(block).toContain(".scene-list { flex-wrap: wrap; overflow-x: visible;");
     expect(block).toContain(".scene-item { flex: 1 1 140px; }");
     expect(block).toContain(".scene-seam { flex: 1 1 100px; }");
+  });
+});
+
+describe("studio editor round 7 fixes (issues #218, #221, #143)", () => {
+  const desktop = CSS.slice(0, CSS.lastIndexOf("@media (max-width: 820px)"));
+
+  it("gives timeline scene buttons a readable minimum width (#218)", () => {
+    expect(desktop).toContain(
+      ".timeline-scenes { display: flex; gap: 4px; margin-bottom: 8px; overflow-x: auto; }",
+    );
+    expect(desktop).toContain("min-width: 72px;");
+    expect(desktop).not.toContain(
+      ".tl-scene {\n  padding: 6px 10px; font-size: 12px; white-space: nowrap;\n  overflow: hidden; text-overflow: ellipsis; min-width: 0;\n}",
+    );
+  });
+
+  it("bounds the narrow scene strip and properties column so the stage is not pushed down (#221)", () => {
+    const block = narrowBlock();
+    expect(block).toContain("max-height: 38vh; overflow-y: auto;");
+    expect(block).toContain(".studio-right { max-height: 60vh; overflow-y: auto; }");
+  });
+
+  it("includes the visible CC label in the Captions button accessible name (#143)", () => {
+    const app = readFileSync(
+      fileURLToPath(new URL("../App.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(app).toContain('aria-label="Captions (CC)"');
   });
 });
