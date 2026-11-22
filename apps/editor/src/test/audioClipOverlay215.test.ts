@@ -16,7 +16,7 @@ const CSS = readFileSync(
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = CSS.match(new RegExp(`${escaped}\\s*{([^}]*)}`));
+  const m = CSS.match(new RegExp(`^${escaped}\\s*{([^}]*)}`, "m"));
   return m?.[1] ?? "";
 }
 
