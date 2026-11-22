@@ -368,9 +368,13 @@ input[type="range"] { accent-color: var(--accent); }
 .shell-lane { margin-top: 36px; }
 .shell-lane h2 { font-size: 20px; margin: 0 0 12px; }
 .shell-cards { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
-.shell-card { min-width: 200px; max-width: 200px; border: 1px solid #e4e4e7; border-radius: 10px; padding: 16px; background: #fff; }
+/* The card surface is white, so its text cannot inherit the dark theme's
+   --text (#e8eaf0 on #fff was 1.2:1, issues #159/#170/#177): bind it to the
+   theme's near-black token --bg (#14161c on #fff is 18.08:1). */
+.shell-card { min-width: 200px; max-width: 200px; border: 1px solid #e4e4e7; border-radius: 10px; padding: 16px; background: #fff; color: var(--bg); }
 .shell-card button { margin-top: 10px; padding: 6px 12px; border-radius: 6px; border: 1px solid #111; background: #111; color: #fff; cursor: pointer; }
-.shell-empty { color: #71717a; font-size: 14px; }
+.shell-empty { color: var(--muted); font-size: 14px; }
+.shell-card .shell-empty { color: #71717a; }
 
 /* Wiring batch panels (media, audio, library) */
 .media-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
