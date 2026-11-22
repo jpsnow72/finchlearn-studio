@@ -52,7 +52,12 @@ input[type="range"] { accent-color: var(--accent); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 
-.studio { display: flex; flex-direction: column; height: 100%; }
+/* overflow-x: clip at every width (issues #171, #176): at 1024px the
+   scene strip's edge card drove a 39px document-level horizontal
+   scrollbar; the strip scrolls inside itself (see .scene-list), so the
+   document itself never scrolls sideways. The <=820px block below
+   repeats the clip as part of its narrow-layout pin set. */
+.studio { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow-x: clip; }
 
 /* Top bar */
 .topbar {
@@ -159,12 +164,12 @@ input[type="range"] { accent-color: var(--accent); }
 .char-card-label { font-size: 11px; color: var(--muted); }
 
 /* Scene manager */
-.scene-manager { margin: 10px 12px 0; padding: 8px 12px; }
+.scene-manager { margin: 10px 12px 0; padding: 8px 12px; min-width: 0; }
 .scene-strip-header { display: flex; align-items: center; gap: 12px; }
 .scene-strip-header .panel-title { margin: 0; }
 .scene-total { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .scene-strip-header .add-scene { width: auto; margin-left: auto; }
-.scene-list { list-style: none; margin: 8px 0 0; padding: 0 0 4px; display: flex; align-items: stretch; gap: 8px; overflow-x: auto; }
+.scene-list { list-style: none; margin: 8px 0 0; padding: 0 0 4px; display: flex; align-items: stretch; gap: 8px; overflow-x: auto; min-width: 0; max-width: 100%; }
 .scene-item { flex: 0 0 190px; border: 1px solid var(--line); border-radius: 8px; }
 .scene-item.dragging { opacity: 0.55; }
 .scene-item.active { border-color: var(--accent2); }
@@ -499,6 +504,14 @@ input[type="range"] { accent-color: var(--accent); }
   .topbar-status { flex-basis: 100%; }
   .scene-strip-header { flex-wrap: wrap; }
   .scene-strip-header .add-scene { margin-left: 0; }
+  /* Scene strip (issues #162, #132, #173): a horizontal scroller always
+     leaves one card straddling the strip's right edge, which at 375px
+     painted that card 126px past the viewport edge, clipped mid-item.
+     On narrow viewports the strip wraps instead: every card and seam
+     sits fully inside the container and the strip grows downward. */
+  .scene-list { flex-wrap: wrap; overflow-x: visible; }
+  .scene-item { flex: 1 1 140px; }
+  .scene-seam { flex: 1 1 100px; }
   .studio-main { flex-direction: column; overflow-y: auto; overflow-x: clip; }
   .studio-rail { flex-direction: row; width: auto; overflow-x: auto; }
   .studio-rail button { flex: none; width: 44px; }
