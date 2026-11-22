@@ -111,7 +111,7 @@ export function blockRevealOverlayStyle(
     bottom: 0,
     left: `${frontPct - widthPct}%`,
     width: `${widthPct}%`,
-    background: "var(--accent2, #4c7dd9)",
+    background: "var(--accent2, #3f6cc4)",
     pointerEvents: "none",
   };
 }
