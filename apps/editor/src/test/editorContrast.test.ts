@@ -15,15 +15,15 @@ import { contrastRatio } from "../accessibility";
  *     safe zones) at 1.2:1: .guide-toggle paints a white surface (the
  *     --surface token is undefined in this theme, so its #fff fallback
  *     applies) and set no color, inheriting --text the same way.
- *  3. White text on --accent2 (#4c7dd9) at 4.01:1 (button.primary,
- *     button.active, .seg button.active, .tl-scene.active): NOT pinned
- *     here as fixed. No existing token reaches 4.5:1 with white text;
- *     darkening --accent2 is a palette decision, recorded in the lane
- *     FIX-REPORT for the design loop.
+ *  3. White text on --accent2 (button.primary, button.active,
+ *     .seg button.active, .tl-scene.active): was 4.01:1 on the old
+ *     #4c7dd9. Fixed in the QA round 9 lane for #178 by darkening the
+ *     --accent2 token itself to #3f6cc4 (same blue hue family), which
+ *     computes to 5.06:1 against white; pinned below.
  *
  * jsdom has no cascade for external stylesheets, so, like
  * shellContrast.test.ts, these pins read the shipped sources, resolve
- * the tokens the rules actually bind, and lock seats 1 and 2 at
+ * the tokens the rules actually bind, and lock seats 1, 2 and 3 at
  * WCAG AA (>= 4.5:1).
  */
 const CSS = readFileSync(
@@ -67,6 +67,27 @@ describe("editor stage-control toggle contrast", () => {
     // --text on the white toggle surface is the original 1.2:1 failure.
     expect(contrastRatio(rootVar("text"), "#ffffff")!).toBeLessThan(4.5);
     expect(ruleBody(".guide-toggle")).not.toContain("color: var(--text)");
+  });
+});
+
+describe("editor accent2 white-text contrast (#178)", () => {
+  it("keeps white text on --accent2 at WCAG AA", () => {
+    const ratio = contrastRatio("#ffffff", rootVar("accent2"));
+    expect(ratio).not.toBeNull();
+    expect(ratio!).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps the white-text seats bound to the --accent2 background", () => {
+    for (const selector of [
+      "button.primary",
+      "button.active, .seg-active",
+      ".seg button.active",
+      ".tl-scene.active",
+    ]) {
+      const rule = ruleBody(selector);
+      expect(rule).toContain("background: var(--accent2)");
+      expect(rule).toContain("color: #fff");
+    }
   });
 });
 
