@@ -255,6 +255,14 @@ function TextView({ object }: { object: CourseObject }) {
     overflow: "hidden",
     fontSize: 22,
     lineHeight: 1.35,
+    // Default stage ink (issues #178/#193/#194/#195): text objects carry
+    // no color of their own, so without this the content inherited the
+    // app chrome's --text (#e8eaf0) and rendered 1.2:1 on the default
+    // white scene background, effectively invisible (the starter title).
+    // #14161c is the theme's near-black (--bg), 18.08:1 on white. Inline
+    // colors inside the content HTML and the motion-graphic textColor
+    // override below still win over this default.
+    color: "#14161c",
   };
   const dir = textDirectionOf(object);
   const meta = getMotionMeta(object);
