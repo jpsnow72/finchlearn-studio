@@ -110,6 +110,6 @@ describe("studio editor round 7 fixes (issues #218, #221, #143)", () => {
       fileURLToPath(new URL("../App.tsx", import.meta.url)),
       "utf8",
     );
-    expect(app).toContain('aria-label="Captions (CC)"');
+    expect(app).toContain('aria-label="Captions CC"');
   });
 });
