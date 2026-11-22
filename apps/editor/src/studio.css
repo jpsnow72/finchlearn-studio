@@ -244,10 +244,10 @@ input[type="range"] { accent-color: var(--accent); }
   background: var(--bg2); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 10px 12px;
 }
-.timeline-scenes { display: flex; gap: 4px; margin-bottom: 8px; }
+.timeline-scenes { display: flex; gap: 4px; margin-bottom: 8px; overflow-x: auto; }
 .tl-scene {
   padding: 6px 10px; font-size: 12px; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; min-width: 72px;
 }
 .tl-scene.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .timeline-toolbar { display: flex; flex-direction: column; gap: 8px; }
@@ -518,7 +518,7 @@ input[type="range"] { accent-color: var(--accent); }
      painted that card 126px past the viewport edge, clipped mid-item.
      On narrow viewports the strip wraps instead: every card and seam
      sits fully inside the container and the strip grows downward. */
-  .scene-list { flex-wrap: wrap; overflow-x: visible; }
+  .scene-list { flex-wrap: wrap; overflow-x: visible; max-height: 38vh; overflow-y: auto; }
   .scene-item { flex: 1 1 140px; }
   .scene-seam { flex: 1 1 100px; }
   .studio-main { flex-direction: column; overflow-y: auto; overflow-x: clip; }
@@ -528,6 +528,7 @@ input[type="range"] { accent-color: var(--accent); }
     width: auto; flex: none; overflow-y: visible;
   }
   .studio-flyout { max-height: 50vh; overflow-y: auto; }
+  .studio-right { max-height: 60vh; overflow-y: auto; }
   .studio-center { width: 100%; flex: none; }
   .timeline-controls { flex-wrap: wrap; }
   .timeline-controls input[type="range"] { flex: 1 1 120px; min-width: 0; }
