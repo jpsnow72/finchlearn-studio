@@ -105,6 +105,44 @@ describe("studio editor round 7 fixes (issues #218, #221, #143)", () => {
     expect(block).toContain(".studio-right { max-height: 60vh; overflow-y: auto; }");
   });
 
+  it("truncates timeline scene labels inside the button, not against it (#284)", () => {
+    expect(desktop).toContain(".tl-scene-label {");
+    expect(desktop).toContain(
+      "min-width: 0; overflow: hidden;\n  text-overflow: ellipsis; white-space: nowrap;",
+    );
+    const timeline = readFileSync(
+      fileURLToPath(new URL("../components/Timeline.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(timeline).toContain('<span className="tl-scene-label">{item.name}</span>');
+  });
+
+  it("keeps the scaled stage frame from reporting the unscaled stage size (#285)", () => {
+    expect(desktop).toContain(
+      ".studio-stage-frame { position: relative; overflow: clip; flex: none; }",
+    );
+    const canvas = readFileSync(
+      fileURLToPath(new URL("../components/StudioCanvas.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(canvas).toContain('className="studio-stage-frame"');
+    expect(canvas).not.toContain('overflow: "hidden"');
+  });
+
+  it("bounds stage text inside its object box (#285)", () => {
+    expect(desktop).toContain(
+      ".studio-text { min-width: 0; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }",
+    );
+    expect(desktop).toContain(".studio-text * { max-width: 100%; }");
+    const renderer = readFileSync(
+      fileURLToPath(
+        new URL("../components/StudioObjectRenderer.tsx", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(renderer).toContain('className="studio-text"');
+  });
+
   it("includes the visible CC label in the Captions button accessible name (#143)", () => {
     const app = readFileSync(
       fileURLToPath(new URL("../App.tsx", import.meta.url)),

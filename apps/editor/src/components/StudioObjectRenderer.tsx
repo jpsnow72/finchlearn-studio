@@ -475,13 +475,14 @@ function TextView({ object }: { object: CourseObject }) {
   const reveal = tMs !== null ? kineticRevealForObject(object, stripHtml((object as { content?: string }).content ?? "")) : null;
   if (reveal) {
     return (
-      <div style={{ ...style, whiteSpace: "pre-wrap" }} {...(dir ? { dir } : {})}>
+      <div className="studio-text" style={{ ...style, whiteSpace: "pre-wrap" }} {...(dir ? { dir } : {})}>
         {kineticVisibleText(reveal, tMs ?? 0)}
       </div>
     );
   }
   return (
     <div
+      className="studio-text"
       style={style}
       {...(dir ? { dir } : {})}
       dangerouslySetInnerHTML={{ __html: (object as { content?: string }).content ?? "" }}
