@@ -1,20 +1,24 @@
 /**
  * TranslatePanel — create a translated variant of the open project
- * (issue #54). Pick one of the 20 languages, optionally override the
- * mapped voice per character, and the panel builds a full variant
- * project (translated text, re-voiced dialogue, translated captions)
- * and opens it. The original project is never changed.
+ * (issue #54, widened by G-8, issue #123). Pick from the full offered
+ * language set, optionally override the mapped voice per character,
+ * and the panel builds a full variant project (translated text,
+ * re-voiced dialogue, translated captions) and opens it. The original
+ * project is never changed.
  *
  * Honest states: when translation is not configured the panel says so
- * up front and the create button stays disabled; characters with no
- * voice in the target language are reported by name after creation so
- * a voice can be assigned in the Dialogue panel.
+ * up front and the create button stays disabled; languages the chain
+ * can only carry partially (text and captions, no narration voice) are
+ * marked in the picker and explained when selected, never silently
+ * degraded; characters with no voice in the target language are
+ * reported by name after creation so a voice can be assigned in the
+ * Dialogue panel.
  */
 import { useMemo, useState } from "react";
 import type { CharacterObject } from "@finch-studio/core";
 import {
-  TRANSLATION_LANGUAGES,
   mapVoiceForLanguage,
+  supportedLanguages,
   voicesForLanguage,
   type VariantReport,
 } from "@finch-studio/translation";
@@ -44,6 +48,8 @@ export function TranslatePanel() {
   }, [project]);
 
   const targetVoices = useMemo(() => voicesForLanguage(target), [target]);
+  const languageOptions = useMemo(() => supportedLanguages(), []);
+  const targetInfo = languageOptions.find((s) => s.language.code === target);
 
   const create = async () => {
     if (busy || !configured) return;
@@ -95,14 +101,20 @@ export function TranslatePanel() {
       <label className="field">
         <span>Target language</span>
         <select value={target} onChange={(e) => setTarget(e.target.value)}>
-          {TRANSLATION_LANGUAGES.map((l) => (
+          {languageOptions.map(({ language: l, support }) => (
             <option key={l.code} value={l.code}>
               {l.name} · {l.nativeName}
               {l.direction === "rtl" ? " · right-to-left" : ""}
+              {support === "partial" ? " · text and captions only" : ""}
             </option>
           ))}
         </select>
       </label>
+      {targetInfo?.support === "partial" && (
+        <p className="muted small" role="status">
+          {targetInfo.language.name} is a partial language. {targetInfo.note}
+        </p>
+      )}
       {characters.map((c) => {
         const mapped = mapVoiceForLanguage(characterVoiceId(c) || undefined, target);
         return (

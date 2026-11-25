@@ -13,6 +13,14 @@ import {
   type TranslationFetchResponse,
   type TranslationProvider,
 } from "./provider.js";
+import {
+  GOOGLE_TRANSLATE_LANGUAGES,
+  GOOGLE_TTS_LOCALES,
+  googleTranslateCoversLanguage,
+  googleTtsCoversLanguage,
+  languageSupport,
+  supportedLanguages,
+} from "./support.js";
 import { mapVoiceForLanguage, voicesForLanguage } from "./voices.js";
 import {
   captionCuesForProject,
@@ -94,9 +102,9 @@ function sampleProject(): VideoProject {
 }
 
 describe("language set", () => {
-  it("defines exactly 20 languages with unique codes", () => {
-    expect(TRANSLATION_LANGUAGES).toHaveLength(20);
-    expect(new Set(TRANSLATION_LANGUAGES.map((l) => l.code)).size).toBe(20);
+  it("defines exactly 110 languages with unique codes", () => {
+    expect(TRANSLATION_LANGUAGES).toHaveLength(110);
+    expect(new Set(TRANSLATION_LANGUAGES.map((l) => l.code)).size).toBe(110);
     for (const l of TRANSLATION_LANGUAGES) {
       expect(l.name.length).toBeGreaterThan(0);
       expect(l.nativeName.length).toBeGreaterThan(0);
@@ -109,6 +117,93 @@ describe("language set", () => {
     expect(rtl.map((l) => l.code)).toContain("ar");
     expect(languageByCode("ar")?.direction).toBe("rtl");
     expect(languageByCode("es")?.direction).toBe("ltr");
+  });
+});
+
+describe("language support (G-8)", () => {
+  it("computes 55 full and 55 partial languages across the widened set", () => {
+    const all = supportedLanguages();
+    expect(all).toHaveLength(110);
+    expect(all.filter((s) => s.support === "full")).toHaveLength(55);
+    expect(all.filter((s) => s.support === "partial")).toHaveLength(55);
+  });
+
+  it("pins representative full-chain languages", () => {
+    for (const code of ["es", "de", "zh-CN", "zh-TW", "fil", "nb", "yue", "ur", "af", "th"]) {
+      const info = languageSupport(code);
+      expect(info?.support, code).toBe("full");
+      expect(info?.translateSupported, code).toBe(true);
+      expect(info?.voiceSupported, code).toBe(true);
+      expect(info?.note, code).toBe("");
+    }
+  });
+
+  it("pins representative partial languages as text and captions only", () => {
+    for (const code of ["fa", "km", "cy", "jv", "sq", "ka", "uz"]) {
+      const info = languageSupport(code);
+      expect(info?.support, code).toBe("partial");
+      expect(info?.translateSupported, code).toBe(true);
+      expect(info?.voiceSupported, code).toBe(false);
+      expect(info?.note, code).toContain("Text and captions only");
+    }
+  });
+
+  it("offers only languages the translation provider documents", () => {
+    for (const language of TRANSLATION_LANGUAGES) {
+      expect(
+        googleTranslateCoversLanguage(language),
+        language.code,
+      ).toBe(true);
+      expect(GOOGLE_TRANSLATE_LANGUAGES).toContain(language.translateCode);
+    }
+  });
+
+  it("agrees with the TTS enumeration: full exactly where TTS covers", () => {
+    expect(GOOGLE_TTS_LOCALES).toHaveLength(66);
+    for (const info of supportedLanguages()) {
+      expect(
+        googleTtsCoversLanguage(info.language.code),
+        info.language.code,
+      ).toBe(info.support === "full");
+    }
+  });
+
+  it("returns undefined for a language outside the offered set", () => {
+    expect(languageSupport("xx")).toBeUndefined();
+  });
+
+  it("builds a partial variant: translated text and captions, unvoiced characters", async () => {
+    const { project: variant, report } = await createTranslatedVariant(
+      sampleProject(),
+      { provider: new FakeProvider(), targetLanguage: "fa" },
+    );
+    expect(report.support).toBe("partial");
+    expect(translationMetaOf(variant)?.support).toBe("partial");
+    expect(report.linesPendingVoice).toBe(2);
+    expect(report.captionTrack.lang).toBe("fa");
+    const maya = variant.scenes[0].objects.find(
+      (o) => o.type === "character",
+    ) as CharacterObject;
+    expect(maya.speech?.map((l) => l.text)).toEqual([
+      "[fa] Hello and welcome.",
+      "[fa] Let us begin.",
+    ]);
+    expect(maya.extensions?.["x-finch-studio"]?.["voiceId"]).toBeUndefined();
+  });
+
+  it("builds a full variant in a newly wired language with a mapped voice", async () => {
+    const { project: variant, report } = await createTranslatedVariant(
+      sampleProject(),
+      { provider: new FakeProvider(), targetLanguage: "de" },
+    );
+    expect(report.support).toBe("full");
+    expect(translationMetaOf(variant)?.support).toBe("full");
+    expect(report.linesPendingVoice).toBe(0);
+    expect(report.characters[0].mapping.voiceId).toMatch(/^de-DE-/);
+    const maya = variant.scenes[0].objects.find(
+      (o) => o.type === "character",
+    ) as CharacterObject;
+    expect(maya.extensions?.["x-finch-studio"]?.["voiceId"]).toMatch(/^de-DE-/);
   });
 });
 
@@ -247,7 +342,7 @@ describe("voice mapping rule", () => {
   it("variant leaves characters unvoiced and pending when no voice exists", async () => {
     const { project: variant, report } = await createTranslatedVariant(
       sampleProject(),
-      { provider: new FakeProvider(), targetLanguage: "th" },
+      { provider: new FakeProvider(), targetLanguage: "fa" },
     );
     expect(report.linesPendingVoice).toBe(2);
     const maya = variant.scenes[0].objects.find(
