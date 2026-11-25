@@ -227,7 +227,7 @@ export function Timeline({
             }}
             title={`${item.name} - ${(item.durationMs / 1000).toFixed(1)}s`}
           >
-            {item.name}
+            <span className="tl-scene-label">{item.name}</span>
           </button>
         ))}
       </div>

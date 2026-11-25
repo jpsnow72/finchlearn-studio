@@ -125,6 +125,11 @@ input[type="range"] { accent-color: var(--accent); }
 
 /* Canvas */
 .studio-canvas-wrap { width: 100%; min-width: 0; overflow-x: clip; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* The scaled stage frame (issue #285): sized in scaled pixels around the
+   full-size stage. overflow: clip (not hidden) keeps the frame from
+   becoming a scroll container, so its scroll size stays equal to its
+   client size instead of reporting the unscaled 1280x720 stage inside. */
+.studio-stage-frame { position: relative; overflow: clip; flex: none; }
 .studio-stage {
   position: relative;
   transform-origin: top left;
@@ -134,7 +139,12 @@ input[type="range"] { accent-color: var(--accent); }
   box-shadow: 0 8px 30px rgba(0,0,0,0.35);
 }
 .studio-stage.path-edit { cursor: crosshair; }
-.studio-obj { position: absolute; }
+.studio-obj { position: absolute; min-width: 0; }
+/* Stage text container (issue #285): text wraps or clips inside its own
+   object box and can never push past the stage bounds. One shared rule
+   for every text object, matching the truncation rule set below. */
+.studio-text { min-width: 0; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
+.studio-text * { max-width: 100%; }
 .studio-obj.selected { z-index: 5; }
 .studio-sel-ring {
   position: absolute; inset: -3px;
@@ -246,8 +256,17 @@ input[type="range"] { accent-color: var(--accent); }
 }
 .timeline-scenes { display: flex; gap: 4px; margin-bottom: 8px; overflow-x: auto; }
 .tl-scene {
+  display: flex; align-items: center; justify-content: center;
   padding: 6px 10px; font-size: 12px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; min-width: 72px;
+}
+/* Scene button label truncation (issue #284): the label is a flex child
+   with min-width: 0, so at narrow widths it ellipsizes inside the button
+   instead of clipping against it; the button keeps its readable minimum
+   width (#218) and its title tooltip carries the full scene name. */
+.tl-scene-label {
+  min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
 }
 .tl-scene.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .timeline-toolbar { display: flex; flex-direction: column; gap: 8px; }

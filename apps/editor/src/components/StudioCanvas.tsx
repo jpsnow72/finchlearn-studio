@@ -106,7 +106,8 @@ export function StudioCanvas({
   return (
     <div className="studio-canvas-wrap" ref={wrapRef}>
       <div
-        style={{ width: stageW * scale, height: stageH * scale, overflow: "hidden" }}
+        className="studio-stage-frame"
+        style={{ width: stageW * scale, height: stageH * scale }}
       >
         <div
           className={`studio-stage${pathEdit ? " path-edit" : ""}`}
