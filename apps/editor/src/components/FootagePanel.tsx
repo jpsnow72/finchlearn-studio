@@ -19,6 +19,13 @@ import {
   getFootageClipMetadata,
   resolveFootageObject,
 } from "../footageEditing";
+import { useState } from "react";
+import { MATTE_HONEST_NOTE, RVM_MODEL } from "@finch-studio/media";
+import {
+  getBackgroundRemoval,
+  requestMatteJob,
+  type MatteReplacement,
+} from "../videoMatting";
 import { useStudioStore, useCurrentScene } from "../store";
 
 const PIP_LABELS: Record<FootagePipLayout, string> = {
@@ -30,6 +37,112 @@ const PIP_LABELS: Record<FootagePipLayout, string> = {
   "split-left": "Split left",
   "split-right": "Split right",
 };
+
+
+/**
+ * Background removal controls for one footage clip (issue #122).
+ * The pick is validated before any inference is requested; the matte
+ * job runs on finch-render and its stored matte lands back on the
+ * object, so preview and export composite the same asset.
+ */
+function BackgroundRemovalSection({ clip }: { clip: VideoObject }) {
+  const updateBackgroundRemoval = useStudioStore((s) => s.updateBackgroundRemoval);
+  const scenes = useStudioStore((s) => s.project.scenes);
+  const removal = getBackgroundRemoval(clip);
+  const [kind, setKind] = useState<MatteReplacement["kind"]>(removal?.replacement.kind ?? "color");
+  const [color, setColor] = useState(removal?.replacement.kind === "color" ? removal.replacement.color : "#224466");
+  const [imageId, setImageId] = useState(removal?.replacement.kind === "image" ? removal.replacement.assetId : "");
+  const [sceneId, setSceneId] = useState(removal?.replacement.kind === "scene-background" ? removal.replacement.sceneId : "");
+  const [note, setNote] = useState("");
+
+  const replacement: MatteReplacement =
+    kind === "color"
+      ? { kind: "color", color }
+      : kind === "image"
+        ? { kind: "image", assetId: imageId }
+        : { kind: "scene-background", sceneId, background: scenes.find((s) => s.id === sceneId)?.background };
+
+  const runRemoval = async () => {
+    const base = {
+      modelVersion: RVM_MODEL.version,
+      replacement,
+      status: "processing" as const,
+    };
+    updateBackgroundRemoval(clip.id, base);
+    setNote("Matte job requested. CPU matting can take a while on long clips.");
+    try {
+      const { matte } = await requestMatteJob(
+        { sourceAssetId: clip.resource ?? clip.id, replacement },
+        (text) => setNote(text),
+      );
+      updateBackgroundRemoval(clip.id, {
+        ...base,
+        status: "ready",
+        matteAssetId: matte.id,
+        matteR2Key: matte.r2Key,
+        modelVersion: matte.modelVersion,
+      });
+      setNote("Background removed. The stored matte is used by preview and export alike.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "the matte job failed";
+      updateBackgroundRemoval(clip.id, { ...base, status: "error", error: message });
+      setNote(message);
+    }
+  };
+
+  return (
+    <div className="audio-kf-row">
+      <p className="muted">Background removal: {MATTE_HONEST_NOTE}</p>
+      <label>
+        Replace background with
+        <select value={kind} onChange={(e) => setKind(e.target.value as MatteReplacement["kind"])}>
+          <option value="color">Colour</option>
+          <option value="image">Image</option>
+          <option value="scene-background">Another scene background</option>
+        </select>
+      </label>
+      {kind === "color" && (
+        <label>
+          Replacement colour
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+        </label>
+      )}
+      {kind === "image" && (
+        <label>
+          Replacement image asset id
+          <input type="text" value={imageId} onChange={(e) => setImageId(e.target.value)} placeholder="Media library asset id" />
+        </label>
+      )}
+      {kind === "scene-background" && (
+        <label>
+          Background from scene
+          <select value={sceneId} onChange={(e) => setSceneId(e.target.value)}>
+            <option value="">Pick a scene</option>
+            {scenes.map((s) => (
+              <option key={s.id} value={s.id}>{s.name ?? s.id}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {removal?.status === "processing" && <p className="muted">Matte is processing. Long clips take longer on CPU.</p>}
+      {removal?.status === "ready" && (
+        <p className="muted">Matte ready: {removal.matteR2Key}</p>
+      )}
+      {removal?.status === "error" && (
+        <p className="muted">Background removal failed: {removal.error ?? "unknown error"}</p>
+      )}
+      {note && <p className="muted">{note}</p>}
+      <button type="button" onClick={() => void runRemoval()}>
+        {removal?.status === "error" ? "Try background removal again" : "Remove background"}
+      </button>
+      {removal && (
+        <button type="button" onClick={() => updateBackgroundRemoval(clip.id, null)}>
+          Clear background removal
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function FootagePanel({ tMs }: { tMs: number }) {
   const scene = useCurrentScene();
@@ -231,6 +344,7 @@ export function FootagePanel({ tMs }: { tMs: number }) {
               Timeline duration {(resolved.timelineDurationMs / 1000).toFixed(1)}s
               {resolved.freeze ? `, freeze at ${resolved.freeze.atSourceMs} ms` : ""}
             </p>
+            <BackgroundRemovalSection clip={clip} />
           </div>
         );
       })}

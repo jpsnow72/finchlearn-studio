@@ -40,6 +40,11 @@ import {
   resolveFootageObject,
 } from "./footageEditing";
 import {
+  getBackgroundRemoval,
+  matteAlphaProviderFor,
+  drawMattedFrame,
+} from "./videoMatting";
+import {
   getMotionMeta,
   isMotionGraphicMeta,
   kineticRevealForObject,
@@ -556,6 +561,29 @@ function drawObject(
       const src = resolved.crop
         ? cropRectToPixels(resolved.crop, el.videoWidth, el.videoHeight)
         : { x: 0, y: 0, w: el.videoWidth, h: el.videoHeight };
+      // Background removal (issue #122): when a stored matte is ready
+      // and its alpha provider is loaded, composite through the ONE
+      // shared drawMattedFrame path (the same helper the stage preview
+      // uses). Without a loaded matte the frame draws exactly as
+      // before; no second matting formula exists in the export path.
+      const removal = getBackgroundRemoval(o as VideoObject);
+      const provider = removal && removal.status === "ready" ? matteAlphaProviderFor(o.id) : undefined;
+      const destW = Math.round(pos.w ?? 320);
+      const destH = Math.round(pos.h ?? 180);
+      const localMs = Math.max(0, tMs - clipRange.startMs);
+      const sourceMs = footageSourceAt(resolved, localMs).sourceMs;
+      const alpha = provider?.alphaAt(sourceMs, destW, destH) ?? null;
+      if (removal && alpha) {
+        const matted = drawMattedFrame(
+          ctx,
+          el,
+          alpha,
+          removal.replacement,
+          null,
+          { x: pos.x ?? 0, y: pos.y ?? 0, w: destW, h: destH },
+        );
+        if (matted) break;
+      }
       ctx.drawImage(
         el,
         src.x,

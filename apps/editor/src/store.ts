@@ -61,6 +61,10 @@ import {
   type FootageClipPatch,
 } from "./footageEditing";
 import { pipLayoutRect } from "@finch-studio/schema";
+import {
+  withBackgroundRemoval,
+  type BackgroundRemovalSetting,
+} from "./videoMatting";
 import type { VideoObject } from "@finch-studio/core";
 import {
   characterForLegacyId,
@@ -469,6 +473,7 @@ interface VideoStudioState {
   ) => void;
   clearSceneVoiceover: () => void;
   updateFootageMetadata: (id: string, patch: FootageClipPatch) => void;
+  updateBackgroundRemoval: (id: string, setting: BackgroundRemovalSetting | null) => void;
   setObjectTranscript: (id: string, transcript: ClipTranscript | null) => void;
   addAudioVolumeKeyframe: (id: string, timeMs: number, decibels: number) => void;
   rippleDeleteAudioRegion: (startMs: number, endMs: number) => void;
@@ -1356,6 +1361,15 @@ export const useStudioStore = create<VideoStudioState>()((set, get) => {
             };
           }
           return next as CourseObject;
+        }),
+      );
+    },
+    updateBackgroundRemoval: (id, setting) => {
+      const { project, currentSceneId } = get();
+      commit(
+        patchObject(project, currentSceneId, id, (object) => {
+          if (object.type !== "video") return object;
+          return withBackgroundRemoval(object as VideoObject, setting) as CourseObject;
         }),
       );
     },
