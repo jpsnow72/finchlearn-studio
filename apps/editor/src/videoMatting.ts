@@ -172,7 +172,7 @@ export interface MatteJobRequest {
   replacement: MatteReplacement;
 }
 
-type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; blob?: () => Promise<Blob> }>;
+type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; blob?: () => Promise<Blob>; text?: () => Promise<string> }>;
 
 /** Live finch-matte poll response shape (fields the service returns). */
 export interface MatteJobState {
@@ -230,26 +230,62 @@ export function buildMatteDescriptorFromJobState(
 /**
  * Resolve a clip resource to the source the matte service accepts,
  * through the editor's existing media resolution: the resource is
- * fetched exactly as the export path fetches it. An http or https
- * resource is handed to the service as a fetchable sourceUrl; blob
- * and data resources, and any other resource that fetches locally,
- * resolve to source bytes. An unresolvable resource returns neither,
- * and requestMatteJob then fails honestly instead of sending an
- * asset id the service cannot resolve.
+ * fetched exactly as the export path fetches it. Bytes come first
+ * for every resource, including http and https resources: the editor
+ * uploads the raw bytes it fetched, so a matte job never depends on
+ * the matte service being able to fetch the same URL itself (the
+ * service answers 400 "sourceUrl fetch failed" for URLs its host
+ * cannot fetch, for example hosts that refuse non-browser agents).
+ * Only when the editor cannot fetch the bytes does an http or https
+ * resource fall back to a fetchable sourceUrl for the service to
+ * try. An unresolvable resource returns neither, and
+ * requestMatteJob then fails honestly instead of sending an asset
+ * id the service cannot resolve.
  */
 export async function resolveMatteSource(
   resource: string | undefined,
   fetchFn: FetchLike = fetch as unknown as FetchLike,
 ): Promise<{ sourceBlob?: Blob; sourceUrl?: string }> {
   if (!resource) return {};
-  if (/^https?:\/\//i.test(resource)) return { sourceUrl: resource };
+  const isHttp = /^https?:\/\//i.test(resource);
   try {
     const res = await fetchFn(resource, {});
     if (res.ok && typeof res.blob === "function") return { sourceBlob: await res.blob() };
   } catch {
-    // Fall through: no bytes and no fetchable URL for this resource.
+    // Fall through to the sourceUrl fallback for http resources.
   }
+  if (isHttp) return { sourceUrl: resource };
   return {};
+}
+
+/**
+ * Best-effort detail from a refused matte job response: the service
+ * answers JSON with an error or detail field (for example
+ * "sourceUrl fetch failed: 403"), or plain text. Returns an empty
+ * string when the body carries no readable detail.
+ */
+async function matteRefusalDetail(res: { json(): Promise<unknown>; text?: () => Promise<string> }): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (isRecord(body)) {
+      for (const key of ["error", "detail", "message"]) {
+        const value = body[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
+    }
+    if (typeof body === "string" && body.trim()) return body.trim();
+  } catch {
+    // Not JSON; try plain text below.
+  }
+  try {
+    if (typeof res.text === "function") {
+      const text = await res.text();
+      if (text && text.trim()) return text.trim();
+    }
+  } catch {
+    // No readable detail.
+  }
+  return "";
 }
 
 export async function requestMatteJob(
@@ -282,7 +318,10 @@ export async function requestMatteJob(
     throw new Error("The clip source could not be resolved to footage bytes or a fetchable URL, so no matte job was requested.");
   }
   const begin = await fetchFn(`${baseUrl}/matte-jobs`, beginInit);
-  if (!begin.ok) throw new Error(`the matte service refused the matte job (${begin.status})`);
+  if (!begin.ok) {
+    const detail = await matteRefusalDetail(begin);
+    throw new Error(detail ? `the matte service refused the matte job (${begin.status}): ${detail}` : `the matte service refused the matte job (${begin.status})`);
+  }
   const { jobId, token } = (await begin.json()) as { jobId: string; token: string };
   if (!jobId || !token) throw new Error("the matte service returned no job id or token");
   onStatus("Matte job queued. CPU matting can take a while on long clips.");

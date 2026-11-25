@@ -165,16 +165,25 @@ describe("finch-matte job client (live service contract)", () => {
     expect(called).toBe(0);
   });
 
-  it("resolves clip resources to bytes or a sourceUrl", async () => {
+  it("resolves clip resources bytes-first, with a sourceUrl fallback for http resources", async () => {
     const { resolveMatteSource } = await import("../videoMatting");
-    const http = await resolveMatteSource("https://cdn.example/clip.mp4", (async () => { throw new Error("must not fetch"); }) as never);
-    expect(http).toEqual({ sourceUrl: "https://cdn.example/clip.mp4" });
     const bytes = new Blob(["vid"], { type: "video/mp4" });
     const blobFetch = async () => ({ ok: true, status: 200, json: async () => ({}), blob: async () => bytes });
+    const httpBytes = await resolveMatteSource("https://cdn.example/clip.mp4", blobFetch as never);
+    expect(httpBytes.sourceBlob).toBe(bytes);
+    const httpFallback = await resolveMatteSource("https://cdn.example/clip.mp4", (async () => { throw new Error("browser fetch failed"); }) as never);
+    expect(httpFallback).toEqual({ sourceUrl: "https://cdn.example/clip.mp4" });
     const local = await resolveMatteSource("blob:take-1", blobFetch as never);
     expect(local.sourceBlob).toBe(bytes);
     const missing = await resolveMatteSource(undefined, blobFetch as never);
     expect(missing).toEqual({});
+  });
+
+  it("surfaces the matte service refusal detail instead of only the status", async () => {
+    const fetchFn = async () => ({ ok: false, status: 400, json: async () => ({ error: "sourceUrl fetch failed: 403" }) });
+    await expect(
+      requestMatteJob({ sourceAssetId: "a1", sourceUrl: "https://cdn.example/clip.mp4", replacement: { kind: "color", color: "#112233" } }, () => {}, fetchFn as never, async () => {}, base),
+    ).rejects.toThrow(/400.*sourceUrl fetch failed: 403/);
   });
 });
 
