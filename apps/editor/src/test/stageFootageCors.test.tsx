@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VideoObject } from "@finch-studio/core";
 import {
   StudioObjectRenderer,
+  stageCorsDroppedApplies,
   stageVideoCrossOrigin,
 } from "../components/StudioObjectRenderer.js";
 import { useStudioStore } from "../store.js";
@@ -72,5 +73,20 @@ describe("stage footage element (issue #122)", () => {
     const video = container.querySelector("video");
     if (!video) throw new Error("Missing stage video element");
     expect(video.getAttribute("crossorigin")).toBeNull();
+  });
+});
+
+describe("stageCorsDroppedApplies (issue #122)", () => {
+  it("applies the drop only to the source that dropped", () => {
+    expect(stageCorsDroppedApplies("https://w3.example/v.mp4", "https://w3.example/v.mp4")).toBe(true);
+    expect(stageCorsDroppedApplies("https://w3.example/v.mp4", "https://ingest.example/proxy.mp4")).toBe(false);
+    expect(stageCorsDroppedApplies("https://w3.example/v.mp4", "blob:https://studio.example/1")).toBe(false);
+    expect(stageCorsDroppedApplies(null, "https://w3.example/v.mp4")).toBe(false);
+  });
+  it("keeps a CORS-served replacement source in CORS mode after a direct drop", () => {
+    const droppedFor = "https://w3.example/v.mp4";
+    const proxy = "https://ingest.example/proxy.mp4";
+    expect(stageVideoCrossOrigin(proxy, stageCorsDroppedApplies(droppedFor, proxy))).toBe("anonymous");
+    expect(stageVideoCrossOrigin(droppedFor, stageCorsDroppedApplies(droppedFor, droppedFor))).toBeUndefined();
   });
 });

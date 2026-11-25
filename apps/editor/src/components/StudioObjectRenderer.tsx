@@ -78,6 +78,20 @@ export function stageVideoCrossOrigin(
   return /^https?:\/\//i.test(src) ? "anonymous" : undefined;
 }
 
+/**
+ * Whether a recorded CORS drop applies to the source about to load
+ * (issue #122): the drop is per source URL, so a readable replacement
+ * source (blob object URL, ingest proxy artefact) that arrives after
+ * the direct load dropped out of CORS mode still loads in CORS mode
+ * and its frames stay canvas readable.
+ */
+export function stageCorsDroppedApplies(
+  corsDroppedFor: string | null,
+  stageSrc: string,
+): boolean {
+  return corsDroppedFor !== null && corsDroppedFor === stageSrc;
+}
+
 /** Stable, attribute-safe SVG filter id for an object's correction. */
 export function colorFilterIdFor(objectId: string): string {
   return `cc-${objectId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -252,7 +266,13 @@ function FootageView({ object }: { object: VideoObject }) {
     proxyUrl: storedIngestProxyUrl(object),
   });
   const [proxyFailed, setProxyFailed] = useState(false);
-  const [corsDropped, setCorsDropped] = useState(false);
+  // The CORS drop is recorded per source URL, not as a blanket flag
+  // (issue #122): when the direct load of a non-CORS host fails in
+  // CORS mode and drops to plain, a readable replacement source that
+  // arrives later (blob object URL or the ingest proxy artefact,
+  // which serves CORS) must still load in CORS mode, or its frames
+  // taint the composite canvas exactly like the plain direct load did.
+  const [corsDroppedFor, setCorsDroppedFor] = useState<string | null>(null);
   const previewSrc = proxyFailed ? object.resource : preview.url;
   // Matted footage composites through a canvas readback, so its stage
   // preview must be same-origin: load the preview bytes into a blob
@@ -289,7 +309,10 @@ function FootageView({ object }: { object: VideoObject }) {
     };
   }, [matteReady, previewSrc, preview.isProxy]);
   const stageSrc = blobSrc ?? proxySrc ?? previewSrc;
-  const stageCrossOrigin = stageVideoCrossOrigin(stageSrc ?? "", corsDropped);
+  const stageCrossOrigin = stageVideoCrossOrigin(
+    stageSrc ?? "",
+    stageCorsDroppedApplies(corsDroppedFor, stageSrc ?? ""),
+  );
   const localMs = (tMs ?? 0) - footageClipStartMs(object);
   const at = footageSourceAt(resolved, localMs);
 
@@ -395,7 +418,7 @@ function FootageView({ object }: { object: VideoObject }) {
           // original (issue #7).
           if (blobSrc) setBlobSrc(null);
           else if (proxySrc) setProxySrc(null);
-          else if (stageCrossOrigin && !corsDropped) setCorsDropped(true);
+          else if (stageCrossOrigin) setCorsDroppedFor(stageSrc ?? "");
           else if (preview.isProxy) setProxyFailed(true);
         }}
       />
