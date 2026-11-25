@@ -51,6 +51,13 @@ import {
   isNeutralColorCorrection,
 } from "../colorCorrection";
 import { chartProgress, chartSvg } from "../chart";
+import { MATTE_HONEST_NOTE, parseHexColor, type RgbaFrame } from "@finch-studio/media";
+import {
+  drawMattedFrame,
+  getBackgroundRemoval,
+  loadMatteAlphaProvider,
+  matteAlphaProviderFor,
+} from "../videoMatting";
 
 /** Stable, attribute-safe SVG filter id for an object's correction. */
 export function colorFilterIdFor(objectId: string): string {
@@ -171,6 +178,45 @@ function CharacterView({ object }: { object: CharacterObject }) {
 function FootageView({ object }: { object: VideoObject }) {
   const tMs = useContext(SceneTimeContext);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const matteCanvasRef = useRef<HTMLCanvasElement>(null);
+  const removal = getBackgroundRemoval(object);
+  const matteReady = removal?.status === "ready" && Boolean(removal.matteR2Key);
+  const [matteLoad, setMatteLoad] = useState<
+    { status: "idle" | "loading" | "ready" | "error"; progress: number; error?: string }
+  >({ status: "idle", progress: 0 });
+
+  // Stored matte loader (issue #122): fetch and decode the stored
+  // matte asset into the shared alpha provider registry. The export
+  // path reads the same registry, so preview and export composite
+  // the same matte. A load failure is shown honestly and the plain
+  // footage keeps rendering.
+  useEffect(() => {
+    if (!matteReady || !removal?.matteR2Key) return;
+    if (matteAlphaProviderFor(object.id)) {
+      setMatteLoad({ status: "ready", progress: 1 });
+      return;
+    }
+    let live = true;
+    setMatteLoad({ status: "loading", progress: 0 });
+    loadMatteAlphaProvider(
+      object.id,
+      { r2Key: removal.matteR2Key, modelVersion: removal.modelVersion },
+      { onProgress: (progress) => { if (live) setMatteLoad({ status: "loading", progress }); } },
+    )
+      .then(() => { if (live) setMatteLoad({ status: "ready", progress: 1 }); })
+      .catch((err: unknown) => {
+        if (live) {
+          setMatteLoad({
+            status: "error",
+            progress: 0,
+            error: err instanceof Error ? err.message : "the stored matte could not be loaded",
+          });
+        }
+      });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [object.id, matteReady, removal?.matteR2Key]);
+
   const resolved = resolveFootageObject(object);
   // Preview prefers the ingest proxy once the job is done (issue #7);
   // the original stays the export source and the fallback here when
@@ -212,6 +258,36 @@ function FootageView({ object }: { object: VideoObject }) {
     }
     if (video.paused) void video.play().catch(() => {});
   }, [at.sourceMs, at.frozen, at.ended, resolved.speed, resolved.volume, tMs]);
+  // DOM stage compositing: draw the current footage frame through
+  // the ONE shared drawMattedFrame path with the stored matte and
+  // the chosen replacement background, exactly as the export path
+  // does, so the stage preview matches the exported composite.
+  useEffect(() => {
+    if (matteLoad.status !== "ready" || !removal) return;
+    const video = videoRef.current;
+    const canvas = matteCanvasRef.current;
+    const provider = matteAlphaProviderFor(object.id);
+    if (!video || !canvas || !provider || video.videoWidth === 0) return;
+    const w = Math.max(2, Math.round(object.position?.w ?? 320));
+    const h = Math.max(2, Math.round(object.position?.h ?? 180));
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const alpha = provider.alphaAt(at.sourceMs, w, h);
+    if (!alpha) return;
+    let backgroundFrame: RgbaFrame | null = null;
+    if (removal.replacement.kind === "scene-background" && removal.replacement.background) {
+      const rgb = parseHexColor(removal.replacement.background);
+      const data = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = rgb.r; data[i + 1] = rgb.g; data[i + 2] = rgb.b; data[i + 3] = 255;
+      }
+      backgroundFrame = { width: w, height: h, data };
+    }
+    drawMattedFrame(ctx, video, alpha, removal.replacement, backgroundFrame, { x: 0, y: 0, w, h });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matteLoad.status, tMs, object.id]);
 
   const crop = resolved.crop;
   const videoStyle: CSSProperties = crop
@@ -224,12 +300,13 @@ function FootageView({ object }: { object: VideoObject }) {
         objectFit: "fill",
       }
     : { width: "100%", height: "100%", objectFit: "fill" };
+  const matted = matteReady && matteLoad.status === "ready";
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <video
         ref={videoRef}
         src={previewSrc}
-        style={videoStyle}
+        style={matted ? { ...videoStyle, visibility: "hidden" } : videoStyle}
         muted={resolved.volume === 0}
         playsInline
         preload="auto"
@@ -237,6 +314,23 @@ function FootageView({ object }: { object: VideoObject }) {
           if (preview.isProxy) setProxyFailed(true);
         }}
       />
+      {matteReady && (
+        <canvas
+          ref={matteCanvasRef}
+          style={videoStyle}
+          aria-label="Footage with background removed"
+        />
+      )}
+      {matteReady && matteLoad.status === "loading" && (
+        <div className="studio-placeholder" role="status">
+          Loading background removal preview ({Math.round(matteLoad.progress * 100)} percent). {MATTE_HONEST_NOTE}
+        </div>
+      )}
+      {matteReady && matteLoad.status === "error" && (
+        <div className="studio-placeholder" role="alert">
+          Background removal preview could not load: {matteLoad.error}
+        </div>
+      )}
     </div>
   );
 }
