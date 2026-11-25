@@ -10,8 +10,9 @@
  * inference runs in the browser through ONNX Runtime Web behind the
  * media package's MattingAdapter seam, with the RVM model loaded as an
  * external asset (RVM_MODEL_ASSET_KEY), never bundled. Export side
- * inference runs as a finch-render matte job (requestMatteJob below),
- * following serverRender.ts auth and polling patterns. Either way the
+ * inference runs as a finch-matte job (requestMatteJob below, POST
+ * /matte-jobs on VITE_MATTE_URL), following serverRender.ts auth and
+ * polling patterns. Either way the
  * matte is computed once and stored as an asset keyed to the source
  * footage plus the model version, and BOTH render paths composite
  * that stored matte through compositeFrame in @finch-studio/media.
@@ -34,9 +35,13 @@ export type BackgroundRemovalSetting = FootageBackgroundRemoval;
 export type { MatteReplacement };
 
 const EXT = "x-finch-studio";
-const RENDER_URL = (import.meta.env.VITE_RENDER_URL as string | undefined) ?? "";
 const RENDER_KEY = (import.meta.env.VITE_RENDER_KEY as string | undefined) ?? "";
-export const matteRenderConfigured = Boolean(RENDER_URL && RENDER_KEY);
+const MATTE_URL = ((import.meta.env.VITE_MATTE_URL as string | undefined) ?? "").replace(/\/$/, "");
+const MATTE_ASSET_BASE = ((import.meta.env.VITE_MATTE_ASSET_BASE as string | undefined) ?? "").replace(/\/$/, "");
+/** Model version string the live finch-matte service reports. */
+export const MATTE_SERVICE_MODEL_VERSION = "rvm_mobilenetv3_fp32@v1.0.0";
+export const matteRenderConfigured = Boolean(MATTE_URL && RENDER_KEY);
+export const matteJobConfigured = matteRenderConfigured;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -138,43 +143,154 @@ export async function createBrowserOnnxAdapter(modelUrl: string): Promise<Mattin
 }
 
 // ---------------------------------------------------------------------------
-// finch-render matte job client: same key, token, and polling shape as
-// serverRender.ts, against POST /matting/jobs on the render service.
+// finch-matte job client: the live matte service on VITE_MATTE_URL
+// (https://render.finchlearn.com in the canonical build env, proxied
+// to finch-matte). Contract, verified end to end through the public
+// route in session 56: POST /matte-jobs with the render key creates a
+// job from the raw source footage bytes, or from a JSON sourceUrl
+// body when only a fetchable URL is available, and returns 202 with
+// { jobId, token, cached, cacheKey }. GET /matte-jobs/<id> with the
+// per job token polls; a done response carries state, cacheKey,
+// frames, width, height and fps. The matte file itself is fetched
+// through matteJobFileUrl below (GET /matte-jobs/<id>/file?token=).
+// The stored descriptor keeps the host cache key as its r2Key: no R2
+// credential or signed path is fabricated here, and the R2 matte
+// storage gap stays recorded on issue #122.
 // ---------------------------------------------------------------------------
 
-export interface MatteJobResult { jobId: string; matte: MatteAssetDescriptor }
+export interface MatteJobResult { jobId: string; token: string; matte: MatteAssetDescriptor }
 
-type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+export interface MatteJobRequest {
+  sourceAssetId: string;
+  sourceContentHash?: string;
+  /** Source footage bytes, resolved from the clip asset. Preferred. */
+  sourceBlob?: Blob;
+  /** Fetchable source URL, used only when no bytes are available. */
+  sourceUrl?: string;
+  replacement: MatteReplacement;
+}
+
+type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; blob?: () => Promise<Blob> }>;
+
+/** Live finch-matte poll response shape (fields the service returns). */
+export interface MatteJobState {
+  state: string;
+  error?: string | null;
+  cacheKey?: string;
+  cached?: boolean;
+  frames?: number;
+  frameCount?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  durationMs?: number;
+  modelVersion?: string;
+  model?: string;
+  progress?: number;
+}
+
+/**
+ * Build the stored matte descriptor from a done job response, in the
+ * exact MatteAssetDescriptor shape the matte alpha loader and the
+ * preview compositing already consume: id from the job id, r2Key
+ * from the returned cacheKey, dimensions and frame count from the
+ * job state, modelVersion from the response when it carries one.
+ */
+export function buildMatteDescriptorFromJobState(
+  request: Pick<MatteJobRequest, "sourceAssetId" | "sourceContentHash">,
+  jobId: string,
+  state: MatteJobState,
+): MatteAssetDescriptor {
+  if (!state.cacheKey) throw new Error("the matte job finished without a cache key");
+  const fps = Math.max(1, Math.round(state.fps || 30));
+  const frameCount = Math.max(0, Math.round(state.frameCount ?? state.frames ?? 0));
+  const durationMs = state.durationMs !== undefined
+    ? Math.max(0, Math.round(state.durationMs))
+    : frameCount > 0 ? Math.round((frameCount / fps) * 1000) : 0;
+  return {
+    id: jobId,
+    kind: "matte",
+    sourceAssetId: request.sourceAssetId,
+    sourceContentHash: request.sourceContentHash,
+    modelVersion: state.modelVersion ?? state.model ?? MATTE_SERVICE_MODEL_VERSION,
+    r2Key: state.cacheKey,
+    width: Math.max(1, Math.round(state.width || 1)),
+    height: Math.max(1, Math.round(state.height || 1)),
+    fps,
+    durationMs,
+    frameCount,
+  };
+}
+
+/**
+ * Resolve a clip resource to the source the matte service accepts,
+ * through the editor's existing media resolution: the resource is
+ * fetched exactly as the export path fetches it. An http or https
+ * resource is handed to the service as a fetchable sourceUrl; blob
+ * and data resources, and any other resource that fetches locally,
+ * resolve to source bytes. An unresolvable resource returns neither,
+ * and requestMatteJob then fails honestly instead of sending an
+ * asset id the service cannot resolve.
+ */
+export async function resolveMatteSource(
+  resource: string | undefined,
+  fetchFn: FetchLike = fetch as unknown as FetchLike,
+): Promise<{ sourceBlob?: Blob; sourceUrl?: string }> {
+  if (!resource) return {};
+  if (/^https?:\/\//i.test(resource)) return { sourceUrl: resource };
+  try {
+    const res = await fetchFn(resource, {});
+    if (res.ok && typeof res.blob === "function") return { sourceBlob: await res.blob() };
+  } catch {
+    // Fall through: no bytes and no fetchable URL for this resource.
+  }
+  return {};
+}
 
 export async function requestMatteJob(
-  request: { sourceAssetId: string; sourceContentHash?: string; sourceR2Key?: string; replacement: MatteReplacement },
+  request: MatteJobRequest,
   onStatus: (text: string) => void,
   fetchFn: FetchLike = fetch as unknown as FetchLike,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  baseUrl: string = MATTE_URL,
 ): Promise<MatteJobResult> {
-  if (!matteRenderConfigured && fetchFn === (fetch as unknown as FetchLike)) {
+  if (!baseUrl && fetchFn === (fetch as unknown as FetchLike)) {
     throw new Error("Server matting is not configured in this build.");
   }
   const invalid = validateMatteReplacement(request.replacement);
   if (invalid) throw new Error(invalid);
-  const begin = await fetchFn(`${RENDER_URL}/matting/jobs`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-render-key": RENDER_KEY },
-    body: JSON.stringify({ ...request, modelVersion: RVM_MODEL.version }),
-  });
-  if (!begin.ok) throw new Error(`the render service refused the matte job (${begin.status})`);
+  const sourceUrl = request.sourceUrl ?? (/^https?:\/\//i.test(request.sourceAssetId) ? request.sourceAssetId : undefined);
+  let beginInit: Record<string, unknown>;
+  if (request.sourceBlob) {
+    beginInit = {
+      method: "POST",
+      headers: { "x-render-key": RENDER_KEY, "content-type": request.sourceBlob.type || "video/mp4" },
+      body: request.sourceBlob,
+    };
+  } else if (sourceUrl) {
+    beginInit = {
+      method: "POST",
+      headers: { "x-render-key": RENDER_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ sourceUrl }),
+    };
+  } else {
+    throw new Error("The clip source could not be resolved to footage bytes or a fetchable URL, so no matte job was requested.");
+  }
+  const begin = await fetchFn(`${baseUrl}/matte-jobs`, beginInit);
+  if (!begin.ok) throw new Error(`the matte service refused the matte job (${begin.status})`);
   const { jobId, token } = (await begin.json()) as { jobId: string; token: string };
+  if (!jobId || !token) throw new Error("the matte service returned no job id or token");
   onStatus("Matte job queued. CPU matting can take a while on long clips.");
   const deadline = Date.now() + 30 * 60_000;
   for (;;) {
     if (Date.now() > deadline) throw new Error("the matte job timed out (30 minutes)");
     await sleep(3000);
-    const poll = await fetchFn(`${RENDER_URL}/jobs/${jobId}`, { headers: { "x-render-token": token } });
+    const poll = await fetchFn(`${baseUrl}/matte-jobs/${encodeURIComponent(jobId)}`, { headers: { "x-render-token": token } });
     if (!poll.ok) continue;
-    const state = (await poll.json()) as { state: string; error?: string | null; matte?: MatteAssetDescriptor; progress?: number };
-    if (state.state === "done" && state.matte) return { jobId, matte: state.matte };
-    if (state.state === "error") throw new Error(state.error ?? "the matte job failed");
-    onStatus(state.progress !== undefined ? `Matte is ${Math.round(state.progress * 100)} percent done.` : "Matte is processing on the render service.");
+    const state = (await poll.json()) as MatteJobState;
+    if (state.state === "done") return { jobId, token, matte: buildMatteDescriptorFromJobState(request, jobId, state) };
+    if (state.state === "error" || state.state === "failed") throw new Error(state.error ?? "the matte job failed");
+    onStatus(state.progress !== undefined ? `Matte is ${Math.round(state.progress * 100)} percent done.` : "Matte is processing on the matte service.");
   }
 }
 
@@ -248,8 +364,6 @@ export function drawMattedFrame(
 // blocker for that route.
 // ---------------------------------------------------------------------------
 
-const MATTE_URL = ((import.meta.env.VITE_MATTE_URL as string | undefined) ?? "").replace(/\/$/, "");
-const MATTE_ASSET_BASE = ((import.meta.env.VITE_MATTE_ASSET_BASE as string | undefined) ?? "").replace(/\/$/, "");
 export const matteServiceConfigured = Boolean(MATTE_URL);
 
 /** Live finch-matte file URL for a finished job (job token required). */

@@ -1,6 +1,6 @@
 /**
  * Video matting editor glue (issue #122): metadata round trip through
- * the x-finch-studio extension, the finch-render matte job client
+ * the x-finch-studio extension, the finch-matte job client
  * against a fake fetch, and the shared composite used by both paths.
  */
 // @vitest-environment jsdom
@@ -62,42 +62,113 @@ describe("matte pipeline with a fake adapter", () => {
   });
 });
 
-describe("finch-render matte job client", () => {
-  it("posts with the render key, polls with the job token, and returns the matte", async () => {
+describe("finch-matte job client (live service contract)", () => {
+  const base = "https://render.finchlearn.com";
+  it("posts raw source bytes to /matte-jobs, polls with the job token, and builds the descriptor from the job response", async () => {
     const calls: { url: string; init?: Record<string, unknown> }[] = [];
-    const matte = { id: "matte:x", kind: "matte", sourceAssetId: "a1", modelVersion: "rvm-mobilenetv3-1.0.0", r2Key: "mattes/x.mp4", width: 2, height: 1, fps: 30, durationMs: 1000, frameCount: 30 };
+    let polls = 0;
     const fetchFn = async (url: string, init?: Record<string, unknown>) => {
       calls.push({ url, init });
-      if (url.endsWith("/matting/jobs")) {
-        return { ok: true, status: 202, json: async () => ({ jobId: "job-1", token: "tok-1" }) };
+      if (url === `${base}/matte-jobs`) {
+        return { ok: true, status: 202, json: async () => ({ jobId: "job-1", token: "tok-1", cached: false, cacheKey: "sha1-rvm_mobilenetv3_fp32@v1.0.0" }) };
       }
-      return { ok: true, status: 200, json: async () => ({ state: "done", matte }) };
+      polls += 1;
+      if (polls === 1) return { ok: true, status: 200, json: async () => ({ state: "matting", cacheKey: "sha1-rvm_mobilenetv3_fp32@v1.0.0" }) };
+      return { ok: true, status: 200, json: async () => ({ state: "done", cacheKey: "sha1-rvm_mobilenetv3_fp32@v1.0.0", cached: false, frames: 30, width: 2, height: 1, fps: 30, modelVersion: "rvm_mobilenetv3_fp32@v1.0.0" }) };
     };
+    const blob = new Blob(["clip-bytes"], { type: "video/mp4" });
     const statuses: string[] = [];
     const result = await requestMatteJob(
-      { sourceAssetId: "a1", replacement: { kind: "color", color: "#112233" } },
+      { sourceAssetId: "a1", sourceBlob: blob, replacement: { kind: "color", color: "#112233" } },
       (t) => statuses.push(t),
       fetchFn as never,
       async () => {},
+      base,
     );
-    expect(result.matte.r2Key).toBe("mattes/x.mp4");
-    const post = calls[0].init as { headers: Record<string, string> };
+    expect(calls[0].url).toBe(`${base}/matte-jobs`);
+    const post = calls[0].init as { method: string; headers: Record<string, string>; body: unknown };
+    expect(post.method).toBe("POST");
     expect(post.headers["x-render-key"]).toBeDefined();
+    expect(post.headers["content-type"]).toBe("video/mp4");
+    expect(post.body).toBe(blob);
+    expect(calls[1].url).toBe(`${base}/matte-jobs/job-1`);
+    expect(calls[2].url).toBe(`${base}/matte-jobs/job-1`);
     const poll = calls[1].init as { headers: Record<string, string> };
     expect(poll.headers["x-render-token"]).toBe("tok-1");
+    expect(result.jobId).toBe("job-1");
+    expect(result.token).toBe("tok-1");
+    expect(result.matte).toEqual({
+      id: "job-1",
+      kind: "matte",
+      sourceAssetId: "a1",
+      sourceContentHash: undefined,
+      modelVersion: "rvm_mobilenetv3_fp32@v1.0.0",
+      r2Key: "sha1-rvm_mobilenetv3_fp32@v1.0.0",
+      width: 2,
+      height: 1,
+      fps: 30,
+      durationMs: 1000,
+      frameCount: 30,
+    });
     expect(statuses.length).toBeGreaterThan(0);
+  });
+
+  it("posts the sourceUrl JSON shape when only a fetchable URL is available", async () => {
+    const calls: { url: string; init?: Record<string, unknown> }[] = [];
+    const fetchFn = async (url: string, init?: Record<string, unknown>) => {
+      calls.push({ url, init });
+      if (url === `${base}/matte-jobs`) {
+        return { ok: true, status: 202, json: async () => ({ jobId: "job-3", token: "tok-3", cached: true, cacheKey: "sha3-model" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ state: "done", cacheKey: "sha3-model", frames: 20, width: 320, height: 240, fps: 20 }) };
+    };
+    const result = await requestMatteJob(
+      { sourceAssetId: "a1", sourceUrl: "https://cdn.example/clip.mp4", replacement: { kind: "color", color: "#112233" } },
+      () => {},
+      fetchFn as never,
+      async () => {},
+      base,
+    );
+    const post = calls[0].init as { headers: Record<string, string>; body: string };
+    expect(post.headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(post.body)).toEqual({ sourceUrl: "https://cdn.example/clip.mp4" });
+    expect(result.matte.r2Key).toBe("sha3-model");
+    expect(result.matte.frameCount).toBe(20);
+    expect(result.matte.durationMs).toBe(1000);
+    expect(result.matte.modelVersion).toBe("rvm_mobilenetv3_fp32@v1.0.0");
   });
 
   it("surfaces a job error instead of faking a matte", async () => {
     const fetchFn = async (url: string) => {
-      if (url.endsWith("/matting/jobs")) {
+      if (url.endsWith("/matte-jobs")) {
         return { ok: true, status: 202, json: async () => ({ jobId: "job-2", token: "tok-2" }) };
       }
       return { ok: true, status: 200, json: async () => ({ state: "error", error: "RVM model is not installed on this render host" }) };
     };
     await expect(
-      requestMatteJob({ sourceAssetId: "a1", replacement: { kind: "color", color: "#112233" } }, () => {}, fetchFn as never, async () => {}),
+      requestMatteJob({ sourceAssetId: "a1", sourceBlob: new Blob(["x"]), replacement: { kind: "color", color: "#112233" } }, () => {}, fetchFn as never, async () => {}, base),
     ).rejects.toThrow(/not installed/);
+  });
+
+  it("refuses a source asset id the service cannot resolve, without calling the service", async () => {
+    let called = 0;
+    const fetchFn = async () => { called += 1; return { ok: true, status: 200, json: async () => ({}) }; };
+    await expect(
+      requestMatteJob({ sourceAssetId: "a1", replacement: { kind: "color", color: "#112233" } }, () => {}, fetchFn as never, async () => {}, base),
+    ).rejects.toThrow(/could not be resolved/);
+    expect(called).toBe(0);
+  });
+
+  it("resolves clip resources to bytes or a sourceUrl", async () => {
+    const { resolveMatteSource } = await import("../videoMatting");
+    const http = await resolveMatteSource("https://cdn.example/clip.mp4", (async () => { throw new Error("must not fetch"); }) as never);
+    expect(http).toEqual({ sourceUrl: "https://cdn.example/clip.mp4" });
+    const bytes = new Blob(["vid"], { type: "video/mp4" });
+    const blobFetch = async () => ({ ok: true, status: 200, json: async () => ({}), blob: async () => bytes });
+    const local = await resolveMatteSource("blob:take-1", blobFetch as never);
+    expect(local.sourceBlob).toBe(bytes);
+    const missing = await resolveMatteSource(undefined, blobFetch as never);
+    expect(missing).toEqual({});
   });
 });
 

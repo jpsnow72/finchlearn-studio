@@ -24,6 +24,7 @@ import { MATTE_HONEST_NOTE, RVM_MODEL } from "@finch-studio/media";
 import {
   getBackgroundRemoval,
   requestMatteJob,
+  resolveMatteSource,
   type MatteReplacement,
 } from "../videoMatting";
 import { useStudioStore, useCurrentScene } from "../store";
@@ -42,7 +43,7 @@ const PIP_LABELS: Record<FootagePipLayout, string> = {
 /**
  * Background removal controls for one footage clip (issue #122).
  * The pick is validated before any inference is requested; the matte
- * job runs on finch-render and its stored matte lands back on the
+ * job runs on finch-matte and its stored matte lands back on the
  * object, so preview and export composite the same asset.
  */
 function BackgroundRemovalSection({ clip }: { clip: VideoObject }) {
@@ -71,8 +72,9 @@ function BackgroundRemovalSection({ clip }: { clip: VideoObject }) {
     updateBackgroundRemoval(clip.id, base);
     setNote("Matte job requested. CPU matting can take a while on long clips.");
     try {
+      const source = await resolveMatteSource(clip.resource);
       const { matte } = await requestMatteJob(
-        { sourceAssetId: clip.resource ?? clip.id, replacement },
+        { sourceAssetId: clip.resource ?? clip.id, ...source, replacement },
         (text) => setNote(text),
       );
       updateBackgroundRemoval(clip.id, {
