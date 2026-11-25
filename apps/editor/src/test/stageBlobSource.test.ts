@@ -11,6 +11,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchSameOriginBlobUrl,
+  resolveReadableFootageSrc,
   fetchStageProxyUrl,
   hashSourceUrl,
   mattedStageBlobNeeded,
@@ -97,5 +98,27 @@ describe("fetchStageProxyUrl (issue #122)", () => {
     expect(await fetchStageProxyUrl("https://w.example/v.mp4", deps({
       poll: vi.fn(async () => ({ status: "failed", attempts: 3, error: "boom", outputs: null })) as unknown as StageProxyDeps["poll"],
     }))).toBeNull();
+  });
+});
+
+describe("resolveReadableFootageSrc (issue #122)", () => {
+  it("prefers the blob, then the proxy, then the original", async () => {
+    const blob = vi.fn(async () => "blob:readable");
+    const proxy = vi.fn(async () => "https://ingest.example/proxy.mp4");
+    expect(await resolveReadableFootageSrc("https://w.example/v.mp4", true, { blob, proxy })).toBe("blob:readable");
+    expect(proxy).not.toHaveBeenCalled();
+    const noBlob = vi.fn(async () => null);
+    expect(await resolveReadableFootageSrc("https://w.example/v.mp4", true, { blob: noBlob, proxy })).toBe("https://ingest.example/proxy.mp4");
+    const noProxy = vi.fn(async () => null);
+    expect(await resolveReadableFootageSrc("https://w.example/v.mp4", true, { blob: noBlob, proxy: noProxy })).toBe("https://w.example/v.mp4");
+  });
+
+  it("leaves unmatted footage and local sources untouched", async () => {
+    const blob = vi.fn(async () => "blob:unused");
+    const proxy = vi.fn(async () => "https://ingest.example/proxy.mp4");
+    expect(await resolveReadableFootageSrc("https://w.example/v.mp4", false, { blob, proxy })).toBe("https://w.example/v.mp4");
+    expect(await resolveReadableFootageSrc("media/clip.mp4", true, { blob, proxy })).toBe("media/clip.mp4");
+    expect(blob).not.toHaveBeenCalled();
+    expect(proxy).not.toHaveBeenCalled();
   });
 });
