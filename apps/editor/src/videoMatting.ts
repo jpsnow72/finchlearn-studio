@@ -515,11 +515,16 @@ export type MatteFrameGrabber = (
   onProgress?: (progress: number) => void,
 ) => Promise<DecodedMatte>;
 
-function waitForEvent(target: HTMLVideoElement, event: string): Promise<void> {
+function waitForEvent(target: HTMLVideoElement, event: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`the stored matte video stalled (no ${event} within ${Math.round(timeoutMs / 1000)}s)`));
+    }, timeoutMs);
     const onEvent = () => { cleanup(); resolve(); };
     const onError = () => { cleanup(); reject(new Error("the stored matte video could not be loaded")); };
     const cleanup = () => {
+      clearTimeout(timer);
       target.removeEventListener(event, onEvent);
       target.removeEventListener("error", onError);
     };
@@ -543,8 +548,11 @@ export const decodeMatteVideoWithDom: MatteFrameGrabber = async (sourceUrl, plan
   video.playsInline = true;
   video.preload = "auto";
   video.crossOrigin = "anonymous";
+  // Listener first, source second: attaching after the assignment races
+  // a fast load, and a missed event hung the decode forever (issue #122).
+  const metadataReady = waitForEvent(video, "loadedmetadata", 30_000);
   video.src = sourceUrl;
-  await waitForEvent(video, "loadedmetadata");
+  await metadataReady;
   const width = video.videoWidth;
   const height = video.videoHeight;
   if (!width || !height) throw new Error("the stored matte video has no picture");
@@ -558,8 +566,12 @@ export const decodeMatteVideoWithDom: MatteFrameGrabber = async (sourceUrl, plan
   const frames: Uint8ClampedArray[] = [];
   const total = Math.max(1, plan.frameCount);
   for (let i = 0; i < total; i++) {
+    // Same ordering rule as the metadata wait: subscribe to seeked
+    // before seeking, and bound the wait so one stalled seek fails the
+    // load honestly instead of leaving the stage loader spinning.
+    const seeked = waitForEvent(video, "seeked", 10_000);
     video.currentTime = Math.min(Math.max(0, plan.durationMs / 1000 - 0.001), i / Math.max(1, plan.fps));
-    await waitForEvent(video, "seeked");
+    await seeked;
     ctx.drawImage(video, 0, 0, width, height);
     frames.push(alphaFromMattePixels(ctx.getImageData(0, 0, width, height).data, width, height));
     onProgress?.((i + 1) / total);
@@ -580,6 +592,15 @@ type MatteFetchLike = (url: string, init?: Record<string, unknown>) => Promise<{
  */
 export type StoredMatteRef = Pick<MatteAssetDescriptor, "r2Key"> & Partial<MatteAssetDescriptor>;
 
+/**
+ * Decodes already in flight, by object id. The registry above only
+ * learns about a matte once its decode finishes, so without this map
+ * every concurrent caller (stage remounts, reopened projects, the
+ * export path) started its own full duplicate decode of the same
+ * matte, each holding a full set of alpha planes (issue #122).
+ */
+const matteLoadsInFlight = new Map<string, Promise<MatteAlphaProvider>>();
+
 export async function loadMatteAlphaProvider(
   objectId: string,
   descriptor: StoredMatteRef,
@@ -594,6 +615,29 @@ export async function loadMatteAlphaProvider(
 ): Promise<MatteAlphaProvider> {
   const existing = matteAlphaProviderFor(objectId);
   if (existing) return existing;
+  const inFlight = matteLoadsInFlight.get(objectId);
+  if (inFlight) return inFlight;
+  const promise = loadMatteAlphaProviderOnce(objectId, descriptor, opts);
+  matteLoadsInFlight.set(objectId, promise);
+  try {
+    return await promise;
+  } finally {
+    if (matteLoadsInFlight.get(objectId) === promise) matteLoadsInFlight.delete(objectId);
+  }
+}
+
+async function loadMatteAlphaProviderOnce(
+  objectId: string,
+  descriptor: StoredMatteRef,
+  opts: {
+    url?: string | null;
+    job?: { jobId: string; token: string };
+    matteBase?: string;
+    fetchFn?: MatteFetchLike;
+    grabFrames?: MatteFrameGrabber;
+    onProgress?: (progress: number) => void;
+  },
+): Promise<MatteAlphaProvider> {
   let sourceUrl = opts.url ?? null;
   let objectUrl: string | null = null;
   if (opts.job) {
