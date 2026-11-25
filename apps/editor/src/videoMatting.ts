@@ -56,6 +56,8 @@ export function getBackgroundRemoval(object: VideoObject): BackgroundRemovalSett
   return {
     matteAssetId: typeof raw.backgroundRemoval.matteAssetId === "string" ? raw.backgroundRemoval.matteAssetId : undefined,
     matteR2Key: typeof raw.backgroundRemoval.matteR2Key === "string" ? raw.backgroundRemoval.matteR2Key : undefined,
+    matteJobId: typeof raw.backgroundRemoval.matteJobId === "string" ? raw.backgroundRemoval.matteJobId : undefined,
+    matteJobToken: typeof raw.backgroundRemoval.matteJobToken === "string" ? raw.backgroundRemoval.matteJobToken : undefined,
     modelVersion: typeof raw.backgroundRemoval.modelVersion === "string" ? raw.backgroundRemoval.modelVersion : RVM_MODEL.version,
     replacement: rep as unknown as MatteReplacement,
     status: status === "ready" || status === "error" ? status : "processing",
@@ -200,6 +202,7 @@ export function buildMatteDescriptorFromJobState(
   request: Pick<MatteJobRequest, "sourceAssetId" | "sourceContentHash">,
   jobId: string,
   state: MatteJobState,
+  jobToken?: string,
 ): MatteAssetDescriptor {
   if (!state.cacheKey) throw new Error("the matte job finished without a cache key");
   const fps = Math.max(1, Math.round(state.fps || 30));
@@ -214,6 +217,8 @@ export function buildMatteDescriptorFromJobState(
     sourceContentHash: request.sourceContentHash,
     modelVersion: state.modelVersion ?? state.model ?? MATTE_SERVICE_MODEL_VERSION,
     r2Key: state.cacheKey,
+    jobId,
+    jobToken,
     width: Math.max(1, Math.round(state.width || 1)),
     height: Math.max(1, Math.round(state.height || 1)),
     fps,
@@ -288,7 +293,7 @@ export async function requestMatteJob(
     const poll = await fetchFn(`${baseUrl}/matte-jobs/${encodeURIComponent(jobId)}`, { headers: { "x-render-token": token } });
     if (!poll.ok) continue;
     const state = (await poll.json()) as MatteJobState;
-    if (state.state === "done") return { jobId, token, matte: buildMatteDescriptorFromJobState(request, jobId, state) };
+    if (state.state === "done") return { jobId, token, matte: buildMatteDescriptorFromJobState(request, jobId, state, token) };
     if (state.state === "error" || state.state === "failed") throw new Error(state.error ?? "the matte job failed");
     onStatus(state.progress !== undefined ? `Matte is ${Math.round(state.progress * 100)} percent done.` : "Matte is processing on the matte service.");
   }
@@ -381,6 +386,27 @@ export function matteAssetUrlForDescriptor(descriptor: Pick<MatteAssetDescriptor
   if (/^https?:\/\//i.test(descriptor.r2Key)) return descriptor.r2Key;
   if (!base) return null;
   return `${base}/${descriptor.r2Key.replace(/^\//, "")}`;
+}
+
+/**
+ * Resolve a stored matte descriptor to its matte service file URL
+ * when the descriptor carries the job id and per job token from the
+ * completed job, using the matteJobFileUrl shape on the configured
+ * matte service base. Descriptors stored before job wiring (cache
+ * key only, no job id or token) fall back to the direct asset URL
+ * resolution, which returns null when no asset base is configured,
+ * so the loader keeps reporting no readable address for them.
+ */
+export function matteFileUrlForDescriptor(
+  descriptor: Pick<MatteAssetDescriptor, "r2Key" | "jobId" | "jobToken">,
+  base: string = MATTE_URL,
+  assetBase: string = MATTE_ASSET_BASE,
+): string | null {
+  if (descriptor.jobId && descriptor.jobToken) {
+    if (!base) return null;
+    return matteJobFileUrl(descriptor.jobId, descriptor.jobToken, base);
+  }
+  return matteAssetUrlForDescriptor(descriptor, assetBase);
 }
 
 /** Alpha bytes from one decoded matte frame: matte luminance is alpha. */
@@ -521,6 +547,7 @@ export async function loadMatteAlphaProvider(
   opts: {
     url?: string | null;
     job?: { jobId: string; token: string };
+    matteBase?: string;
     fetchFn?: MatteFetchLike;
     grabFrames?: MatteFrameGrabber;
     onProgress?: (progress: number) => void;
@@ -538,7 +565,7 @@ export async function loadMatteAlphaProvider(
     objectUrl = URL.createObjectURL(await res.blob());
     sourceUrl = objectUrl;
   }
-  if (!sourceUrl) sourceUrl = matteAssetUrlForDescriptor(descriptor);
+  if (!sourceUrl) sourceUrl = matteFileUrlForDescriptor(descriptor, opts.matteBase ?? MATTE_URL);
   if (!sourceUrl) {
     throw new Error("The stored matte has no readable address in this build yet. Matte storage wiring is still open on issue #122.");
   }

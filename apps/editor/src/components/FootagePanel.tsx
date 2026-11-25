@@ -73,7 +73,7 @@ function BackgroundRemovalSection({ clip }: { clip: VideoObject }) {
     setNote("Matte job requested. CPU matting can take a while on long clips.");
     try {
       const source = await resolveMatteSource(clip.resource);
-      const { matte } = await requestMatteJob(
+      const { matte, jobId, token } = await requestMatteJob(
         { sourceAssetId: clip.resource ?? clip.id, ...source, replacement },
         (text) => setNote(text),
       );
@@ -82,6 +82,8 @@ function BackgroundRemovalSection({ clip }: { clip: VideoObject }) {
         status: "ready",
         matteAssetId: matte.id,
         matteR2Key: matte.r2Key,
+        matteJobId: matte.jobId ?? jobId,
+        matteJobToken: matte.jobToken ?? token,
         modelVersion: matte.modelVersion,
       });
       setNote("Background removed. The stored matte is used by preview and export alike.");

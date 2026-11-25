@@ -23,6 +23,10 @@ export interface FootageBackgroundRemoval {
   matteAssetId?: string;
   /** R2 key of the stored alpha matte asset. */
   matteR2Key?: string;
+  /** Matte service job id that produced the matte, when it came from one. */
+  matteJobId?: string;
+  /** Per job token for the matte service file route, paired with matteJobId. */
+  matteJobToken?: string;
   /** Model that produced the matte, for example rvm-mobilenetv3-1.0.0. */
   modelVersion: string;
   replacement: MatteReplacement;
@@ -54,6 +58,8 @@ export function normalizeBackgroundRemoval(value: unknown): FootageBackgroundRem
   return {
     matteAssetId: typeof value.matteAssetId === "string" ? value.matteAssetId : undefined,
     matteR2Key: typeof value.matteR2Key === "string" ? value.matteR2Key : undefined,
+    matteJobId: typeof value.matteJobId === "string" ? value.matteJobId : undefined,
+    matteJobToken: typeof value.matteJobToken === "string" ? value.matteJobToken : undefined,
     modelVersion: typeof value.modelVersion === "string" ? value.modelVersion : DEFAULT_MATTE_MODEL_VERSION,
     replacement,
     status,

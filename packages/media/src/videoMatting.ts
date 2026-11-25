@@ -85,6 +85,10 @@ export interface MatteAssetDescriptor {
   sourceContentHash?: string;
   modelVersion: string;
   r2Key: string;
+  /** Matte service job that produced this matte, when it came from one. */
+  jobId?: string;
+  /** Per job token for the matte service file route, paired with jobId. */
+  jobToken?: string;
   width: number;
   height: number;
   fps: number;
@@ -107,6 +111,7 @@ export function matteR2Key(request: MatteRequest): string {
 export function createMatteAssetDescriptor(
   request: MatteRequest,
   dims: { width: number; height: number; fps: number; durationMs: number },
+  job?: { jobId: string; jobToken: string },
 ): MatteAssetDescriptor {
   const modelVersion = request.modelVersion ?? RVM_MODEL_VERSION;
   const fps = Math.max(1, Math.round(dims.fps || 30));
@@ -117,6 +122,8 @@ export function createMatteAssetDescriptor(
     sourceContentHash: request.sourceContentHash,
     modelVersion,
     r2Key: matteR2Key(request),
+    jobId: job?.jobId,
+    jobToken: job?.jobToken,
     width: Math.max(1, Math.round(dims.width)),
     height: Math.max(1, Math.round(dims.height)),
     fps,

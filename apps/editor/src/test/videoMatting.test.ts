@@ -29,6 +29,8 @@ const clip = (): VideoObject => ({
 const setting: BackgroundRemovalSetting = {
   matteAssetId: "matte:footage-1:abc:rvm-mobilenetv3-1.0.0",
   matteR2Key: "mattes/matte/footage-1/abc/rvm-mobilenetv3-1.0.0.mp4",
+  matteJobId: "job-1",
+  matteJobToken: "tok-1",
   modelVersion: "rvm-mobilenetv3-1.0.0",
   replacement: { kind: "color", color: "#224466" },
   status: "ready",
@@ -104,6 +106,8 @@ describe("finch-matte job client (live service contract)", () => {
       sourceContentHash: undefined,
       modelVersion: "rvm_mobilenetv3_fp32@v1.0.0",
       r2Key: "sha1-rvm_mobilenetv3_fp32@v1.0.0",
+      jobId: "job-1",
+      jobToken: "tok-1",
       width: 2,
       height: 1,
       fps: 30,
@@ -133,6 +137,8 @@ describe("finch-matte job client (live service contract)", () => {
     expect(post.headers["content-type"]).toBe("application/json");
     expect(JSON.parse(post.body)).toEqual({ sourceUrl: "https://cdn.example/clip.mp4" });
     expect(result.matte.r2Key).toBe("sha3-model");
+    expect(result.matte.jobId).toBe("job-3");
+    expect(result.matte.jobToken).toBe("tok-3");
     expect(result.matte.frameCount).toBe(20);
     expect(result.matte.durationMs).toBe(1000);
     expect(result.matte.modelVersion).toBe("rvm_mobilenetv3_fp32@v1.0.0");
@@ -226,5 +232,44 @@ describe("stored matte loader", () => {
     expect(matteJobFileUrl("job 1", "tok/2", "https://matte.example.test")).toBe(
       "https://matte.example.test/matte-jobs/job%201/file?token=tok%2F2",
     );
+  });
+
+  it("resolves a descriptor with job id and token to the matte file URL, and a legacy descriptor to no address", async () => {
+    const { matteFileUrlForDescriptor } = await import("../videoMatting");
+    const withJob = {
+      id: "job-9", kind: "matte" as const, sourceAssetId: "clip-9",
+      modelVersion: "rvm-mobilenetv3-1.0.0", r2Key: "sha9-model",
+      jobId: "job-9", jobToken: "tok-9",
+      width: 2, height: 1, fps: 10, durationMs: 200, frameCount: 2,
+    };
+    expect(matteFileUrlForDescriptor(withJob, "https://matte.example.test")).toBe(
+      "https://matte.example.test/matte-jobs/job-9/file?token=tok-9",
+    );
+    const legacy = { ...withJob, jobId: undefined, jobToken: undefined };
+    expect(matteFileUrlForDescriptor(legacy, "https://matte.example.test", "")).toBeNull();
+    const partial = { ...withJob, jobToken: undefined };
+    expect(matteFileUrlForDescriptor(partial, "https://matte.example.test", "")).toBeNull();
+  });
+
+  it("loads a matte through the job file URL stored on its descriptor", async () => {
+    const { loadMatteAlphaProvider, registerMatteAlphaProvider: reg } = await import("../videoMatting");
+    reg("job-clip", null);
+    const descriptor = {
+      id: "job-9", kind: "matte" as const, sourceAssetId: "job-clip",
+      modelVersion: "rvm-mobilenetv3-1.0.0", r2Key: "sha9-model",
+      jobId: "job-9", jobToken: "tok-9",
+      width: 2, height: 1, fps: 10, durationMs: 200, frameCount: 2,
+    };
+    const seenUrls: string[] = [];
+    const loaded = await loadMatteAlphaProvider("job-clip", descriptor, {
+      matteBase: "https://matte.example.test",
+      grabFrames: async (url) => {
+        seenUrls.push(url);
+        return { frames: [new Uint8ClampedArray([255, 0])], width: 2, height: 1 };
+      },
+    });
+    expect(seenUrls).toEqual(["https://matte.example.test/matte-jobs/job-9/file?token=tok-9"]);
+    expect(Array.from(loaded.alphaAt(0, 2, 1) ?? [])).toEqual([255, 0]);
+    reg("job-clip", null);
   });
 });
