@@ -66,6 +66,28 @@ export async function hashSourceUrl(url: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * One-shot readable-source resolution for the export path, which
+ * preloads every footage element before its frame loop: for footage
+ * with a ready matte, resolve the blob route, then the ingest
+ * fetch-through, then the original URL. Non-matted footage and
+ * non-http sources keep the original untouched, exactly as before.
+ */
+export async function resolveReadableFootageSrc(
+  resource: string,
+  matteReady: boolean,
+  deps: {
+    blob?: typeof fetchSameOriginBlobUrl;
+    proxy?: typeof fetchStageProxyUrl;
+  } = {},
+): Promise<string> {
+  if (!mattedStageBlobNeeded(matteReady, resource)) return resource;
+  const blob = await (deps.blob ?? fetchSameOriginBlobUrl)(resource);
+  if (blob) return blob;
+  const proxy = await (deps.proxy ?? fetchStageProxyUrl)(resource);
+  return proxy ?? resource;
+}
+
 export interface StageProxyDeps {
   configured: boolean;
   hash: (url: string) => Promise<string>;

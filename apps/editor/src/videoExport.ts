@@ -44,6 +44,7 @@ import {
   matteAlphaProviderFor,
   drawMattedFrame,
 } from "./videoMatting";
+import { resolveReadableFootageSrc } from "./stageBlobSource";
 import {
   getMotionMeta,
   isMotionGraphicMeta,
@@ -359,12 +360,21 @@ async function loadFootageVideos(
       if (o.type !== "video") continue;
       const resource = (o as VideoObject).resource;
       if (!resource || videos.has(o.id)) continue;
+      // Matted footage (issue #122): the composite reads frames back
+      // through a canvas, so a footage host without CORS headers
+      // would fail the CORS-mode load below and the object would be
+      // skipped entirely. Resolve a readable source first (blob,
+      // then the ingest fetch-through), like the stage preview does.
+      const removalForLoad = getBackgroundRemoval(o as VideoObject);
+      const matteReadyForLoad =
+        removalForLoad?.status === "ready" && Boolean(removalForLoad.matteR2Key);
+      const src = await resolveReadableFootageSrc(resource, matteReadyForLoad);
       const el = document.createElement("video");
       el.muted = true;
       el.playsInline = true;
       el.preload = "auto";
-      if (/^https?:\/\//i.test(resource)) el.crossOrigin = "anonymous";
-      el.src = resource;
+      if (/^https?:\/\//i.test(src)) el.crossOrigin = "anonymous";
+      el.src = src;
       videos.set(o.id, el);
       jobs.push(
         new Promise<void>((resolve) => {
@@ -574,14 +584,22 @@ function drawObject(
       const sourceMs = footageSourceAt(resolved, localMs).sourceMs;
       const alpha = provider?.alphaAt(sourceMs, destW, destH) ?? null;
       if (removal && alpha) {
-        const matted = drawMattedFrame(
-          ctx,
-          el,
-          alpha,
-          removal.replacement,
-          null,
-          { x: pos.x ?? 0, y: pos.y ?? 0, w: destW, h: destH },
-        );
+        // A readback throw (tainted frame) must not kill the export:
+        // fall through to the plain draw, exactly as the stage guard
+        // keeps the plain footage rendering (issue #122).
+        let matted = false;
+        try {
+          matted = drawMattedFrame(
+            ctx,
+            el,
+            alpha,
+            removal.replacement,
+            null,
+            { x: pos.x ?? 0, y: pos.y ?? 0, w: destW, h: destH },
+          );
+        } catch {
+          matted = false;
+        }
         if (matted) break;
       }
       ctx.drawImage(
