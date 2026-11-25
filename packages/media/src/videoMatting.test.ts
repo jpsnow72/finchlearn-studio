@@ -33,6 +33,11 @@ describe("video matting core (issue #122)", () => {
     expect(matteR2Key(req)).toBe(`mattes/matte/clip-1/abc123/${RVM_MODEL.version}.mp4`);
     const desc = createMatteAssetDescriptor(req, { width: 1280, height: 720, fps: 30, durationMs: 4000 });
     expect(desc).toMatchObject({ kind: "matte", sourceAssetId: "clip-1", frameCount: 120, r2Key: matteR2Key(req) });
+    const withJob = createMatteAssetDescriptor(req, { width: 1280, height: 720, fps: 30, durationMs: 4000 }, { jobId: "job-1", jobToken: "tok-1" });
+    expect(withJob.jobId).toBe("job-1");
+    expect(withJob.jobToken).toBe("tok-1");
+    expect(desc.jobId).toBeUndefined();
+    expect(desc.jobToken).toBeUndefined();
   });
 
   it("composites foreground over replacement by alpha, the one shared formula", () => {

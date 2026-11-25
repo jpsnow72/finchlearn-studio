@@ -200,7 +200,12 @@ function FootageView({ object }: { object: VideoObject }) {
     setMatteLoad({ status: "loading", progress: 0 });
     loadMatteAlphaProvider(
       object.id,
-      { r2Key: removal.matteR2Key, modelVersion: removal.modelVersion },
+      {
+        r2Key: removal.matteR2Key,
+        modelVersion: removal.modelVersion,
+        jobId: removal.matteJobId,
+        jobToken: removal.matteJobToken,
+      },
       { onProgress: (progress) => { if (live) setMatteLoad({ status: "loading", progress }); } },
     )
       .then(() => { if (live) setMatteLoad({ status: "ready", progress: 1 }); })
@@ -215,7 +220,7 @@ function FootageView({ object }: { object: VideoObject }) {
       });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [object.id, matteReady, removal?.matteR2Key]);
+  }, [object.id, matteReady, removal?.matteR2Key, removal?.matteJobId, removal?.matteJobToken]);
 
   const resolved = resolveFootageObject(object);
   // Preview prefers the ingest proxy once the job is done (issue #7);
