@@ -48,6 +48,7 @@ const MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024;
 const ALLOWED_ORIGINS = new Set([
   "https://studio.finchlearn.com",
   "https://finchlearn-studio.pages.dev",
+  "https://devstudio.finchlearn.com",
   "http://localhost:5173",
 ]);
 

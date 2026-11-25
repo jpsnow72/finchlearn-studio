@@ -43,6 +43,7 @@ import {
 import { studioActionFor } from "../videoExport";
 import { getStoredIngest } from "@finch-studio/media";
 import { previewSourceFor, storedIngestProxyUrl } from "../ingestClient";
+import { fetchSameOriginBlobUrl, fetchStageProxyUrl, mattedStageBlobNeeded } from "../stageBlobSource";
 import { customDefOfObject } from "../customCharacters";
 import { textDirectionOf } from "@finch-studio/translation";
 import { feColorMatrixValues } from "@finch-studio/schema";
@@ -253,7 +254,42 @@ function FootageView({ object }: { object: VideoObject }) {
   const [proxyFailed, setProxyFailed] = useState(false);
   const [corsDropped, setCorsDropped] = useState(false);
   const previewSrc = proxyFailed ? object.resource : preview.url;
-  const stageCrossOrigin = stageVideoCrossOrigin(previewSrc ?? "", corsDropped);
+  // Matted footage composites through a canvas readback, so its stage
+  // preview must be same-origin: load the preview bytes into a blob
+  // object URL (issue #122). Hosts without CORS headers fail the
+  // CORS-mode element load and taint the canvas on the plain fallback;
+  // a blob URL never taints. While the bytes load, and when they
+  // cannot be fetched at all, the direct-URL chain below still runs.
+  const [blobSrc, setBlobSrc] = useState<string | null>(null);
+  const [proxySrc, setProxySrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!mattedStageBlobNeeded(matteReady, previewSrc ?? "")) return;
+    let live = true;
+    let created: string | null = null;
+    void (async () => {
+      const url = await fetchSameOriginBlobUrl(previewSrc ?? "");
+      if (url) {
+        created = url;
+        if (live) setBlobSrc(url);
+        else URL.revokeObjectURL(url);
+        return;
+      }
+      // The footage host refused CORS: fetch the preview through the
+      // ingest service instead (server-side fetch, CORS-served proxy
+      // artefact), unless the preview already IS the ingest proxy.
+      if (!live || preview.isProxy) return;
+      const proxy = await fetchStageProxyUrl(previewSrc ?? "");
+      if (live && proxy) setProxySrc(proxy);
+    })();
+    return () => {
+      live = false;
+      if (created) URL.revokeObjectURL(created);
+      setBlobSrc(null);
+      setProxySrc(null);
+    };
+  }, [matteReady, previewSrc, preview.isProxy]);
+  const stageSrc = blobSrc ?? proxySrc ?? previewSrc;
+  const stageCrossOrigin = stageVideoCrossOrigin(stageSrc ?? "", corsDropped);
   const localMs = (tMs ?? 0) - footageClipStartMs(object);
   const at = footageSourceAt(resolved, localMs);
 
@@ -343,19 +379,23 @@ function FootageView({ object }: { object: VideoObject }) {
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <video
-        key={stageCrossOrigin ? "cors" : "plain"}
+        key={blobSrc ? "blob" : proxySrc ? "proxy" : stageCrossOrigin ? "cors" : "plain"}
         ref={videoRef}
-        src={previewSrc}
+        src={stageSrc}
         crossOrigin={stageCrossOrigin}
         style={matted ? { ...videoStyle, visibility: "hidden" } : videoStyle}
         muted={resolved.volume === 0}
         playsInline
         preload="auto"
         onError={() => {
-          // A source that refuses CORS fails to load in CORS mode:
-          // drop to a plain load so playback still works. Only then
-          // fall back from the ingest proxy to the original (issue #7).
-          if (stageCrossOrigin && !corsDropped) setCorsDropped(true);
+          // A blob preview that fails to play drops back to the
+          // direct-URL chain. A source that refuses CORS fails to
+          // load in CORS mode: drop to a plain load so playback still
+          // works. Only then fall back from the ingest proxy to the
+          // original (issue #7).
+          if (blobSrc) setBlobSrc(null);
+          else if (proxySrc) setProxySrc(null);
+          else if (stageCrossOrigin && !corsDropped) setCorsDropped(true);
           else if (preview.isProxy) setProxyFailed(true);
         }}
       />
