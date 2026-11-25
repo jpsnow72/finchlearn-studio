@@ -291,6 +291,7 @@ export function FrontPage({
   const localExports = readList<SavedExport>(EXPORTS_KEY);
   const current = useStudioStore((s) => s.project);
   const loadProject = useStudioStore((s) => s.loadProject);
+  const newProject = useStudioStore((s) => s.newProject);
   const [cloudProjects, setCloudProjects] = useState<CloudProjectSummary[]>([]);
   const [cloudExports, setCloudExports] = useState<CloudExport[]>([]);
   const [restoreNote, setRestoreNote] = useState("");
@@ -383,7 +384,18 @@ export function FrontPage({
         )}
         {restoreNote && <p className="shell-empty">{restoreNote}</p>}
         <div className="shell-ctas">
-          <button type="button" className="shell-cta" onClick={onOpenEditor}>
+          <button
+            type="button"
+            className="shell-cta"
+            onClick={() => {
+              // Issue #283: entering the editor alone reopened whatever
+              // project the store had restored from autosave, so the hub
+              // New Project button must actually start a new project
+              // (same store action the editor TopBar uses) before opening.
+              newProject();
+              onOpenEditor();
+            }}
+          >
             New Project
           </button>
         </div>

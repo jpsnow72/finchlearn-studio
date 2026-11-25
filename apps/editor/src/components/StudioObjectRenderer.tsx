@@ -59,6 +59,24 @@ import {
   matteAlphaProviderFor,
 } from "../videoMatting";
 
+/**
+ * Stage footage CORS mode (issue #122): the stage composites footage
+ * frames through a canvas (drawMattedFrame reads pixels back), so an
+ * http(s) preview must load in CORS mode or the canvas is tainted and
+ * the readback throws. This mirrors the export path, which sets
+ * crossOrigin "anonymous" on its own video elements. When a source
+ * refuses CORS the element errors and the caller drops back to a
+ * plain no-CORS load so playback still works (compositing then stays
+ * unavailable and is reported honestly, never thrown).
+ */
+export function stageVideoCrossOrigin(
+  src: string,
+  corsDropped: boolean,
+): "anonymous" | undefined {
+  if (corsDropped) return undefined;
+  return /^https?:\/\//i.test(src) ? "anonymous" : undefined;
+}
+
 /** Stable, attribute-safe SVG filter id for an object's correction. */
 export function colorFilterIdFor(objectId: string): string {
   return `cc-${objectId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -233,7 +251,9 @@ function FootageView({ object }: { object: VideoObject }) {
     proxyUrl: storedIngestProxyUrl(object),
   });
   const [proxyFailed, setProxyFailed] = useState(false);
+  const [corsDropped, setCorsDropped] = useState(false);
   const previewSrc = proxyFailed ? object.resource : preview.url;
+  const stageCrossOrigin = stageVideoCrossOrigin(previewSrc ?? "", corsDropped);
   const localMs = (tMs ?? 0) - footageClipStartMs(object);
   const at = footageSourceAt(resolved, localMs);
 
@@ -290,7 +310,21 @@ function FootageView({ object }: { object: VideoObject }) {
       }
       backgroundFrame = { width: w, height: h, data };
     }
-    drawMattedFrame(ctx, video, alpha, removal.replacement, backgroundFrame, { x: 0, y: 0, w, h });
+    try {
+      drawMattedFrame(ctx, video, alpha, removal.replacement, backgroundFrame, { x: 0, y: 0, w, h });
+    } catch (err: unknown) {
+      // Issue #122: a composite readback can throw (a cross-origin
+      // frame taints the canvas and getImageData raises a
+      // SecurityError). Uncaught, that throw unmounted the whole
+      // editor (no error boundary) and left the tab on a blank dark
+      // page. Surface the existing honest error state instead; the
+      // plain footage keeps rendering.
+      setMatteLoad({
+        status: "error",
+        progress: 0,
+        error: err instanceof Error ? err.message : "the background removal preview could not be composited",
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matteLoad.status, tMs, object.id]);
 
@@ -309,14 +343,20 @@ function FootageView({ object }: { object: VideoObject }) {
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <video
+        key={stageCrossOrigin ? "cors" : "plain"}
         ref={videoRef}
         src={previewSrc}
+        crossOrigin={stageCrossOrigin}
         style={matted ? { ...videoStyle, visibility: "hidden" } : videoStyle}
         muted={resolved.volume === 0}
         playsInline
         preload="auto"
         onError={() => {
-          if (preview.isProxy) setProxyFailed(true);
+          // A source that refuses CORS fails to load in CORS mode:
+          // drop to a plain load so playback still works. Only then
+          // fall back from the ingest proxy to the original (issue #7).
+          if (stageCrossOrigin && !corsDropped) setCorsDropped(true);
+          else if (preview.isProxy) setProxyFailed(true);
         }}
       />
       {matteReady && (
