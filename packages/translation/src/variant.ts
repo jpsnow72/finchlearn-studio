@@ -33,6 +33,14 @@
  * timing the editor's caption export uses, the track is a standard
  * CaptionTrack in the target language, and SRT/VTT formatting matches
  * the editor's caption presets.
+ *
+ * Support levels (G-8, #123): every variant records the language's
+ * computed support level (support.ts) in its metadata and report. A
+ * partial language (translation and captions, no narration voice)
+ * builds exactly the unvoiced shape described above: text and captions
+ * translated, characters flagged for voice assignment, no lip sync
+ * regenerated. The level is data on the variant, never a silent
+ * degradation.
  */
 import type {
   CharacterObject,
@@ -54,6 +62,7 @@ import {
   NOT_CONFIGURED_MESSAGE,
   type TranslationProvider,
 } from "./provider.js";
+import { languageSupport, type LanguageSupport } from "./support.js";
 import { mapVoiceForLanguage, type VoiceMapping } from "./voices.js";
 
 export const STUDIO_EXTENSION = "x-finch-studio";
@@ -66,6 +75,8 @@ export interface TranslationVariantMeta {
   direction: TextDirection;
   createdAt: string;
   providerId: string;
+  /** Full-chain or partial support, computed in support.ts (G-8). */
+  support: LanguageSupport;
 }
 
 type ExtBag = Record<string, Record<string, unknown>>;
@@ -220,6 +231,8 @@ export interface CharacterVoiceReport {
 
 export interface VariantReport {
   targetLanguage: string;
+  /** Full-chain or partial support, computed in support.ts (G-8). */
+  support: LanguageSupport;
   direction: TextDirection;
   stringsTranslated: number;
   characters: CharacterVoiceReport[];
@@ -444,6 +457,7 @@ export async function createTranslatedVariant(
 
   // 5. Fresh identity + source linkage in the extension style.
   regenerateIds(variant);
+  const supportInfo = languageSupport(target.code);
   const meta: TranslationVariantMeta = {
     kind: "translation-variant",
     sourceProjectId: source.id,
@@ -452,6 +466,7 @@ export async function createTranslatedVariant(
     direction: target.direction,
     createdAt: (opts.now ?? (() => new Date().toISOString()))(),
     providerId: opts.provider.providerId,
+    support: supportInfo?.support ?? "partial",
   };
   const metaRecord: Record<string, unknown> = {
     kind: meta.kind,
@@ -461,6 +476,7 @@ export async function createTranslatedVariant(
     direction: meta.direction,
     createdAt: meta.createdAt,
     providerId: meta.providerId,
+    support: meta.support,
   };
   (variant as { extensions?: ExtBag }).extensions = {
     ...(variant as { extensions?: ExtBag }).extensions,
@@ -469,6 +485,7 @@ export async function createTranslatedVariant(
 
   const report: VariantReport = {
     targetLanguage: target.code,
+    support: meta.support,
     direction: target.direction,
     stringsTranslated: segments.length,
     characters: characterReports.map((c, i) => ({
