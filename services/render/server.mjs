@@ -29,6 +29,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile, readFile, stat, rm } from "node:fs/promises";
 import { randomUUID, randomBytes } from "node:crypto";
 import puppeteer from "puppeteer-core";
+import { runMatteJob, validateMatteRequest } from "./matting.mjs";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const RENDER_KEY = process.env.RENDER_KEY ?? "";
@@ -52,6 +53,8 @@ if (!RENDER_KEY) {
 const jobs = new Map();
 const queue = [];
 let running = false;
+const matteQueue = [];
+let matteRunning = false;
 
 function corsHeaders(req) {
   const origin = req.headers.origin;
@@ -193,6 +196,19 @@ async function processJob(job) {
   }
 }
 
+async function pumpMatte() {
+  if (matteRunning) return;
+  const job = matteQueue.shift();
+  if (!job) return;
+  matteRunning = true;
+  try {
+    await runMatteJob(job);
+  } finally {
+    matteRunning = false;
+    void pumpMatte();
+  }
+}
+
 async function pump() {
   if (running) return;
   const job = queue.shift();
@@ -224,6 +240,38 @@ const server = createServer(async (req, res) => {
       res.writeHead(204, corsHeaders(req));
       res.end();
       return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/matting/jobs") {
+      if (req.headers["x-render-key"] !== RENDER_KEY) {
+        return sendJson(req, res, 401, { error: "render key required" });
+      }
+      const body = JSON.parse((await readBody(req, 1024 * 1024)).toString("utf8"));
+      const invalid = validateMatteRequest(body);
+      if (invalid) return sendJson(req, res, 400, { error: invalid });
+      const job = {
+        id: randomUUID(),
+        token: randomBytes(18).toString("hex"),
+        kind: "matte",
+        sourceAssetId: body.sourceAssetId,
+        sourceContentHash: body.sourceContentHash,
+        sourceR2Key: body.sourceR2Key,
+        modelVersion: body.modelVersion ?? "rvm-mobilenetv3-1.0.0",
+        replacement: body.replacement,
+        width: Number(body.width ?? 1280),
+        height: Number(body.height ?? 720),
+        durationMs: Number(body.durationMs ?? 0),
+        state: "queued",
+        error: null,
+        sizeBytes: null,
+        progress: 0,
+        matte: null,
+        createdAt: Date.now(),
+      };
+      jobs.set(job.id, job);
+      matteQueue.push(job);
+      void pumpMatte();
+      return sendJson(req, res, 202, { jobId: job.id, token: job.token });
     }
 
     if (req.method === "POST" && url.pathname === "/jobs") {
@@ -287,9 +335,12 @@ const server = createServer(async (req, res) => {
       }
       return sendJson(req, res, 200, {
         jobId: job.id,
+        kind: job.kind ?? "render",
         state: job.state,
         error: job.error,
         sizeBytes: job.sizeBytes,
+        progress: job.progress ?? undefined,
+        matte: job.matte ?? undefined,
       });
     }
 

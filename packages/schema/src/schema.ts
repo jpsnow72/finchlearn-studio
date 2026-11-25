@@ -23,6 +23,7 @@ import {
   type ColorCorrection,
 } from "./colorCorrection.js";
 import { validateMulticamGroup, type MulticamGroup } from "./multicam.js";
+import type { FootageBackgroundRemoval } from "./matting.js";
 
 export const STUDIO_SCHEMA_VERSION = 1 as const;
 
@@ -341,6 +342,13 @@ export interface FootageElement extends ElementBase {
   freeze?: FootageFreeze;
   crop?: FootageCrop;
   pipLayout?: FootagePipLayout;
+  /**
+   * Optional background removal (issue #122): a matte computed once
+   * and stored as an asset, plus its replacement. Absent means the
+   * footage renders exactly as before. Resolved through the media
+   * package matting core, shared by both render paths.
+   */
+  backgroundRemoval?: FootageBackgroundRemoval;
 }
 
 export interface CharacterElement extends ElementBase {

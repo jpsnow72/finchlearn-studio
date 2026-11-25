@@ -6,3 +6,4 @@ export * from "./scriptImport.js";
 export * from "./reframe.js";
 export * from "./colorCorrection.js";
 export * from "./multicam.js";
+export * from "./matting.js";
