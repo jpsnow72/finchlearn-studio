@@ -260,6 +260,48 @@ describe("stored matte loader", () => {
     expect(matteFileUrlForDescriptor(partial, "https://matte.example.test", "")).toBeNull();
   });
 
+  it("shares one decode between concurrent loads of the same object", async () => {
+    const { loadMatteAlphaProvider, registerMatteAlphaProvider: reg } = await import("../videoMatting");
+    reg("dedupe-clip", null);
+    const descriptor = {
+      id: "job-dedupe", kind: "matte" as const, sourceAssetId: "dedupe-clip",
+      modelVersion: "rvm-mobilenetv3-1.0.0", r2Key: "https://example.test/matte.mp4",
+      width: 2, height: 1, fps: 10, durationMs: 200, frameCount: 2,
+    };
+    let grabs = 0;
+    const grabFrames = async () => {
+      grabs += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return { frames: [new Uint8ClampedArray([255, 0])], width: 2, height: 1 };
+    };
+    const [a, b] = await Promise.all([
+      loadMatteAlphaProvider("dedupe-clip", descriptor, { grabFrames }),
+      loadMatteAlphaProvider("dedupe-clip", descriptor, { grabFrames }),
+    ]);
+    expect(grabs).toBe(1);
+    expect(b).toBe(a);
+    reg("dedupe-clip", null);
+  });
+
+  it("clears a failed load so a later retry can succeed", async () => {
+    const { loadMatteAlphaProvider, matteAlphaProviderFor: lookup, registerMatteAlphaProvider: reg } = await import("../videoMatting");
+    reg("retry-clip", null);
+    const descriptor = {
+      id: "job-retry", kind: "matte" as const, sourceAssetId: "retry-clip",
+      modelVersion: "rvm-mobilenetv3-1.0.0", r2Key: "https://example.test/matte.mp4",
+      width: 2, height: 1, fps: 10, durationMs: 200, frameCount: 2,
+    };
+    await expect(loadMatteAlphaProvider("retry-clip", descriptor, {
+      grabFrames: async () => { throw new Error("the stored matte video stalled (no seeked within 10s)"); },
+    })).rejects.toThrow(/stalled/);
+    expect(lookup("retry-clip")).toBeUndefined();
+    const loaded = await loadMatteAlphaProvider("retry-clip", descriptor, {
+      grabFrames: async () => ({ frames: [new Uint8ClampedArray([255, 0])], width: 2, height: 1 }),
+    });
+    expect(lookup("retry-clip")).toBe(loaded);
+    reg("retry-clip", null);
+  });
+
   it("loads a matte through the job file URL stored on its descriptor", async () => {
     const { loadMatteAlphaProvider, registerMatteAlphaProvider: reg } = await import("../videoMatting");
     reg("job-clip", null);
