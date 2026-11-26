@@ -21,6 +21,23 @@ import { supabase, supabaseEnabled } from "./supabase";
 
 export const MEDIA_WORKER_URL = "https://finch-media.jpsnow72.workers.dev";
 
+/** The media service accepts exactly these content types for Studio
+ * export uploads and matches them as bare MIME strings. Blob types from
+ * the export producers are NOT bare: MediaRecorder reports types like
+ * "video/mp4;codecs=avc1.42E01E" (the realtime presets' first-choice
+ * mime), and a server render inherits whatever Content-Type the render
+ * service sent. Passing blob.type verbatim made every realtime-preset
+ * export fail its cloud save with the service's 400 (issue #118).
+ * Normalize to the bare type; anything the service does not store
+ * returns null so the caller can say so plainly instead of relaying a
+ * raw 400. */
+const EXPORT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "application/zip"]);
+
+export function exportContentType(blob: Blob): string | null {
+  const bare = (blob.type || "video/mp4").split(";")[0]?.trim().toLowerCase() ?? "";
+  return EXPORT_CONTENT_TYPES.has(bare) ? bare : null;
+}
+
 export interface CloudExport {
   id: string;
   name: string;
@@ -62,7 +79,10 @@ export async function uploadExportToCloud(
   const userId = userData.user?.id;
   if (!userId) return null;
 
-  const contentType = blob.type || "video/mp4";
+  const contentType = exportContentType(blob);
+  if (!contentType) {
+    throw new Error("this file type cannot be saved to the media library yet");
+  }
   const begin = await fetch(`${MEDIA_WORKER_URL}/v1/studio/exports`, {
     method: "POST",
     headers: {
@@ -93,7 +113,7 @@ export async function uploadExportToCloud(
   });
   if (!put.ok) throw new Error(`the file upload failed (${put.status})`);
 
-  const kind = contentType.includes("webm") ? "webm" : "mp4";
+  const kind = contentType === "video/webm" ? "webm" : contentType === "application/zip" ? "zip" : "mp4";
   const row = {
     id: crypto.randomUUID(),
     user_id: userId,
