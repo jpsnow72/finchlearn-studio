@@ -1,0 +1,1 @@
+{"dependencies":{},"description":"FinchLearn Studio AI generation service: Gemini image generation metered by the FinchLearn plan allowance (issue #361).","name":"finch-generate","private":true,"type":"module","version":"0.1.0"}

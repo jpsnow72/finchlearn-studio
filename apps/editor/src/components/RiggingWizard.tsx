@@ -39,9 +39,16 @@ import {
   type CustomRig,
   type PinId,
   type PinSet,
+  type StyleFamilyId,
 } from "@finch-studio/characters";
 import { useStudioStore, makeStudioCustomCharacter } from "../store";
-import { generatedCharacterSource } from "../generatedCharacterSource";
+import { AiAssetsGeneratedSource } from "../generatedCharacterSource";
+import {
+  probeGenerationService,
+  projectStyleContext,
+  sceneStyleContext,
+} from "../aiAssets";
+import { BUILT_IN_STYLE_FAMILIES } from "@finch-studio/ai-assets";
 
 const PART_SLOTS_FOR_UPLOAD = [
   "head", "torso",
@@ -60,8 +67,6 @@ interface PartFile {
   ref: string;
   name: string;
 }
-
-const generatedSource = generatedCharacterSource;
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -146,6 +151,8 @@ export function RiggingWizard() {
   const saveCustomCharacter = useStudioStore((s) => s.saveCustomCharacter);
   const removeCustomCharacter = useStudioStore((s) => s.removeCustomCharacter);
   const addObject = useStudioStore((s) => s.addObject);
+  const project = useStudioStore((s) => s.project);
+  const currentSceneId = useStudioStore((s) => s.currentSceneId);
 
   const [tab, setTab] = useState<"single" | "parts" | "svg" | "generated">("single");
   const [name, setName] = useState("");
@@ -165,6 +172,28 @@ export function RiggingWizard() {
   const [editing, setEditing] = useState<CustomCharacterDef | null>(null);
   const [genPrompt, setGenPrompt] = useState("");
   const [genError, setGenError] = useState("");
+  const [genStylePick, setGenStylePick] = useState<"auto" | StyleFamilyId>("auto");
+  const [genServiceOff, setGenServiceOff] = useState(false);
+
+  // The generated source resolves style from this scene, then the
+  // project (issue #362); the service probe keeps the tab honest when
+  // the build carries the endpoint but the service is not switched on.
+  const currentScene = project.scenes.find((s) => s.id === currentSceneId);
+  const generatedSource = useMemo(
+    () =>
+      new AiAssetsGeneratedSource(undefined, undefined, {
+        scene: sceneStyleContext(currentScene),
+        project: projectStyleContext(project),
+      }),
+    [project, currentScene],
+  );
+  const generationReady = generatedSource.isConfigured && !genServiceOff;
+
+  useEffect(() => {
+    void probeGenerationService().then((configured) =>
+      setGenServiceOff(configured === false),
+    );
+  }, []);
   const [note, setNote] = useState("");
 
   const singleRef = useRef<HTMLInputElement>(null);
@@ -374,7 +403,12 @@ export function RiggingWizard() {
   const tryGenerate = async () => {
     setGenError("");
     try {
-      const material = await generatedSource.produce({ kind: "generated", prompt: genPrompt.trim(), template: "spread-pose" });
+      const material = await generatedSource.produce({
+        kind: "generated",
+        prompt: genPrompt.trim(),
+        template: "spread-pose",
+        ...(genStylePick !== "auto" ? { styleFamily: genStylePick } : {}),
+      });
       if (material.kind !== "upload") {
         setGenError("Generation returned an unexpected result. Nothing was created.");
         return;
@@ -545,13 +579,39 @@ export function RiggingWizard() {
               placeholder="A friendly fox teacher in a cardigan"
             />
           </label>
-          <button type="button" onClick={() => void tryGenerate()} disabled={!genPrompt.trim() || !generatedSource.isConfigured}>
+          <label className="field">
+            Style
+            <select
+              aria-label="Character style"
+              value={genStylePick}
+              onChange={(e) => setGenStylePick(e.target.value as "auto" | StyleFamilyId)}
+            >
+              <option value="auto">Match this project (automatic)</option>
+              {BUILT_IN_STYLE_FAMILIES.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={() => void tryGenerate()} disabled={!genPrompt.trim() || !generationReady}>
             Generate character
           </button>
+          <p className="muted small">
+            Each generation counts once against your FinchLearn AI allowance.
+            Generating again counts again.
+          </p>
           {!generatedSource.isConfigured && (
             <p className="muted small">
               AI generation is not configured on this build yet, so no character can be
               generated here. Upload a PNG or use the SVG template instead.
+            </p>
+          )}
+          {generatedSource.isConfigured && genServiceOff && (
+            <p className="muted small">
+              AI generation is not switched on yet on the generation service, so no
+              character can be generated here. Upload a PNG or use the SVG template
+              instead.
             </p>
           )}
           {genError && <p className="small">{genError}</p>}

@@ -16,7 +16,7 @@
  * up front and the generate button stays disabled. Generation counts
  * against the existing FinchLearn AI allowance; no new credits.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BUILT_IN_STYLE_FAMILIES,
   makeGeneratedAssetObject,
@@ -29,6 +29,7 @@ import { useStudioStore } from "../store";
 import {
   assetGenerationConfigured,
   generateAssetForScene,
+  probeGenerationService,
   loadGeneratedAssets,
   projectCustomStyleSet,
   projectStyleContext,
@@ -48,6 +49,11 @@ export function GenerateAssetPanel() {
   const [status, setStatus] = useState("");
   const [saved, setSaved] = useState<GeneratedLibraryAsset[]>(loadGeneratedAssets);
   const configured = assetGenerationConfigured();
+  const [serviceOff, setServiceOff] = useState(false);
+  useEffect(() => {
+    void probeGenerationService().then((c) => setServiceOff(c === false));
+  }, []);
+  const ready = configured && !serviceOff;
 
   const scene = project.scenes.find((s) => s.id === currentSceneId);
   const customSet = useMemo(() => projectCustomStyleSet(project), [project]);
@@ -74,7 +80,7 @@ export function GenerateAssetPanel() {
   );
 
   const generate = async () => {
-    if (busy || !configured || !description.trim()) return;
+    if (busy || !ready || !description.trim()) return;
     setBusy(true);
     setStatus("Generating your asset. This can take a moment.");
     try {
@@ -116,6 +122,13 @@ export function GenerateAssetPanel() {
           AI asset generation is not configured on this build. An administrator
           needs to set the VITE_FINCH_AI_ASSET_ENDPOINT build secret before
           assets can be generated.
+        </p>
+      )}
+      {configured && serviceOff && (
+        <p className="muted" role="status">
+          AI asset generation is not switched on yet. The generation service
+          is running, but generation stays off until an administrator enables
+          it, so nothing can be generated right now.
         </p>
       )}
       <label className="field">
@@ -171,7 +184,7 @@ export function GenerateAssetPanel() {
         type="button"
         className="primary"
         onClick={() => void generate()}
-        disabled={busy || !configured || !description.trim()}
+        disabled={busy || !ready || !description.trim()}
       >
         {busy ? "Generating..." : "Generate asset"}
       </button>

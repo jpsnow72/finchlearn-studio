@@ -20,6 +20,7 @@
  * a generated character.
  */
 import type { CustomCharacterDef } from "./rigging.js";
+import type { StyleFamilyId } from "./defs.js";
 
 export type CharacterSourceKind = "upload" | "parts" | "svg-template" | "generated";
 
@@ -29,6 +30,12 @@ export interface GeneratedCharacterRequest {
   prompt: string;
   /** Optional named template or style the generation should follow. */
   template?: string;
+  /**
+   * Optional style family the generation should follow. When absent the
+   * binding resolves the style from the scene, then the project, then
+   * the launch family (issue #362).
+   */
+  styleFamily?: StyleFamilyId;
 }
 
 export type CharacterSourceRequest =

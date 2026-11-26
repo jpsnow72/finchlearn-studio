@@ -5,6 +5,7 @@ import {
   AssetAllowanceError,
   AssetGenerationNotConfiguredError,
   AssetGenerationProviderError,
+  AssetGenerationDenialError,
   EndpointAssetProvider,
   UnconfiguredAssetProvider,
   assetProviderFromConfig,
@@ -139,6 +140,26 @@ describe("baked in output defaults", () => {
     expect(d.placement).toEqual({ x: 0, y: 0, w: 1280, h: 720 });
   });
 
+  it("characters share the prop canvas defaults (flat vector, transparent, square)", () => {
+    const d = outputDefaultsForKind("character");
+    expect(d.look).toBe("flat-vector");
+    expect(d.background).toBe("transparent");
+    expect(d.canvas).toEqual({ width: 1024, height: 1024 });
+  });
+
+  it("the character prompt bakes in the rigging format rules", () => {
+    const style = resolveStyleFamily({});
+    const prompt = buildEffectivePrompt(
+      "a fox teacher",
+      style,
+      outputDefaultsForKind("character"),
+      "character",
+    );
+    expect(prompt).toContain("spread pose");
+    expect(prompt).toContain("every joint clearly visible");
+    expect(prompt).toContain("nothing overlapping the joints");
+  });
+
   it("the effective prompt bakes in style, look, and background handling", () => {
     const style = resolveStyleFamily({ explicit: { family: "B" } });
     const propPrompt = buildEffectivePrompt("a brass desk lamp", style, outputDefaultsForKind("prop"));
@@ -242,6 +263,93 @@ describe("generate and save flow", () => {
     await expect(
       generateAndSaveAsset({ description: "a lamp", kind: "prop" }, deps({ provider })),
     ).rejects.toBeInstanceOf(AssetGenerationProviderError);
+  });
+
+  it("the endpoint binding sends the user token and an idempotency key", async () => {
+    let seenInit: AssetFetchInit | undefined;
+    const provider = new EndpointAssetProvider({
+      endpoint: "https://ai.example/generate",
+      getAuthToken: async () => "user-token-123",
+      makeIdempotencyKey: () => "idem-abc",
+      fetchFn: async (_url, init) => {
+        seenInit = init;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ remoteUrl: "https://img.example/x.png" }),
+        } as AssetFetchResponse;
+      },
+    });
+    await provider.generate({
+      userPrompt: "x",
+      prompt: "x",
+      kind: "character",
+      style: resolveStyleFamily({}),
+      defaults: outputDefaultsForKind("character"),
+      allowanceScope: AI_ALLOWANCE_SCOPE,
+    });
+    expect(seenInit?.headers.authorization).toBe("Bearer user-token-123");
+    const body = JSON.parse(String(seenInit?.body)) as Record<string, unknown>;
+    expect(body.idempotencyKey).toBe("idem-abc");
+    expect(body.kind).toBe("character");
+  });
+
+  it("the endpoint binding surfaces an allowance denial with the service's specific message", async () => {
+    const provider = new EndpointAssetProvider({
+      endpoint: "https://ai.example/generate",
+      fetchFn: async () =>
+        ({
+          ok: false,
+          status: 402,
+          json: async () => ({
+            error: "Monthly AI allowance used (10 content generations).",
+            code: "allowance_exhausted",
+            quota: { allowance: 10, used: 10, resetsAt: "2026-12-01T00:00:00.000Z" },
+          }),
+        }) as AssetFetchResponse,
+    });
+    const err = await provider
+      .generate({
+        userPrompt: "x",
+        prompt: "x",
+        kind: "prop",
+        style: resolveStyleFamily({}),
+        defaults: outputDefaultsForKind("prop"),
+        allowanceScope: AI_ALLOWANCE_SCOPE,
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AssetGenerationDenialError);
+    expect((err as Error).message).toContain(
+      "Monthly AI allowance used (10 content generations).",
+    );
+    expect((err as AssetGenerationDenialError).resetsAt).toBe(
+      "2026-12-01T00:00:00.000Z",
+    );
+  });
+
+  it("the endpoint binding reads a not-configured service as not configured", async () => {
+    const provider = new EndpointAssetProvider({
+      endpoint: "https://ai.example/generate",
+      fetchFn: async () =>
+        ({
+          ok: false,
+          status: 503,
+          json: async () => ({
+            error: "AI generation is not switched on yet.",
+            code: "generation_not_configured",
+          }),
+        }) as AssetFetchResponse,
+    });
+    await expect(
+      provider.generate({
+        userPrompt: "x",
+        prompt: "x",
+        kind: "prop",
+        style: resolveStyleFamily({}),
+        defaults: outputDefaultsForKind("prop"),
+        allowanceScope: AI_ALLOWANCE_SCOPE,
+      }),
+    ).rejects.toBeInstanceOf(AssetGenerationNotConfiguredError);
   });
 });
 
