@@ -9,9 +9,15 @@ import { createClient, type Session } from "@supabase/supabase-js";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const schema = (import.meta.env.VITE_SUPABASE_SCHEMA as string | undefined)?.trim();
 
 export const supabaseEnabled = Boolean(url && anon);
-export const supabase = supabaseEnabled ? createClient(url!, anon!) : null;
+// Dev builds set VITE_SUPABASE_SCHEMA=qa so Studio QA traffic lands in the
+// isolated qa schema; production builds set nothing and keep the default
+// public schema behaviour exactly as before.
+export const supabase = supabaseEnabled
+  ? createClient(url!, anon!, schema && schema !== "public" ? { db: { schema } } : undefined)
+  : null;
 
 export async function currentSession(): Promise<Session | null> {
   if (!supabase) return null;
