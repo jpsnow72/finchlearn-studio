@@ -361,12 +361,23 @@ export function FrontPage({
         {projects.length === 0 ? (
           <p className="shell-empty">No projects yet. Start your first video.</p>
         ) : (
-          <div className="shell-cards">
+          <div
+            className="shell-cards"
+            tabIndex={0}
+            role="region"
+            aria-label="Continue editing projects list"
+          >
             {projects.map((p) => (
               <div className="shell-card" key={p.id}>
                 <strong>{p.name}</strong>
                 <div className="shell-empty">Edited {new Date(p.updatedAt).toLocaleDateString()}</div>
-                <button type="button" onClick={() => openLocalProject(p.id)}>Open</button>
+                <button
+                  type="button"
+                  aria-label={`Open ${p.name} (edited ${new Date(p.updatedAt).toLocaleDateString()})`}
+                  onClick={() => openLocalProject(p.id)}
+                >
+                  Open
+                </button>
               </div>
             ))}
             {cloudOnlyProjects.map((p) => (
@@ -375,7 +386,11 @@ export function FrontPage({
                 <div className="shell-empty">
                   ☁ Cloud · Saved {new Date(p.updatedAt).toLocaleDateString()}
                 </div>
-                <button type="button" onClick={() => void openCloudProject(p.id)}>
+                <button
+                  type="button"
+                  aria-label={`Open ${p.name} (saved ${new Date(p.updatedAt).toLocaleDateString()})`}
+                  onClick={() => void openCloudProject(p.id)}
+                >
                   Open
                 </button>
               </div>
@@ -409,7 +424,12 @@ export function FrontPage({
         {exportsList.length === 0 ? (
           <p className="shell-empty">Finished videos you save to your media library will show up here.</p>
         ) : (
-          <div className="shell-cards">
+          <div
+            className="shell-cards"
+            tabIndex={0}
+            role="region"
+            aria-label="Recent exports list"
+          >
             {exportsList.map((e) => (
               <div className="shell-card" key={e.id}>
                 <strong>{e.name}</strong>
