@@ -24,7 +24,9 @@ import {
   generateAndSaveAsset,
   outputDefaultsForKind,
   type AssetGenerationProvider,
+  type ExplicitStyle,
   type MediaLibraryPort,
+  type StyleContext,
 } from "@finch-studio/ai-assets";
 import {
   CharacterGenerationNotConfiguredError,
@@ -40,13 +42,16 @@ export class AiAssetsGeneratedSource implements CharacterSourcePort {
   readonly providerId = "ai-assets";
   private readonly provider: AssetGenerationProvider;
   private readonly library: MediaLibraryPort;
+  private readonly styleContexts?: { scene?: StyleContext; project?: StyleContext };
 
   constructor(
     provider: AssetGenerationProvider = assetGenerationProvider(),
     library: MediaLibraryPort = localGeneratedLibrary,
+    styleContexts?: { scene?: StyleContext; project?: StyleContext },
   ) {
     this.provider = provider;
     this.library = library;
+    this.styleContexts = styleContexts;
   }
 
   get isConfigured(): boolean {
@@ -66,11 +71,24 @@ export class AiAssetsGeneratedSource implements CharacterSourcePort {
         GENERATION_NOT_CONFIGURED_MESSAGE,
       );
     }
-    const description = request.template
-      ? `${request.prompt}, ${request.template} pose`
-      : request.prompt;
+    // The request rides the asset flow with kind "character" (issue
+    // #362): the baked prompt and the service both apply the rigging
+    // format rules (spread pose, every joint visible), and the result
+    // saves with character provenance. Style resolves explicit pick,
+    // then scene, then project, then the launch family.
+    const explicitStyle: ExplicitStyle | undefined = request.styleFamily
+      ? { family: request.styleFamily }
+      : undefined;
     const result = await generateAndSaveAsset(
-      { description, kind: "prop" },
+      {
+        description: request.prompt,
+        kind: "character",
+        ...(explicitStyle ? { explicitStyle } : {}),
+        ...(this.styleContexts?.scene ? { sceneStyle: this.styleContexts.scene } : {}),
+        ...(this.styleContexts?.project
+          ? { projectStyle: this.styleContexts.project }
+          : {}),
+      },
       { provider: this.provider, library: this.library },
     );
     const asset = result.asset;
@@ -80,7 +98,7 @@ export class AiAssetsGeneratedSource implements CharacterSourcePort {
         "Generation returned without an image. Nothing was created.",
       );
     }
-    const canvas = outputDefaultsForKind("prop").canvas;
+    const canvas = outputDefaultsForKind("character").canvas;
     return {
       kind: "upload",
       imageRef,

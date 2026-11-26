@@ -90,6 +90,26 @@ export class AssetGenerationProviderError extends Error {
 }
 
 export const ASSET_ENDPOINT_SECRET = "FINCH_AI_ASSET_ENDPOINT";
+/**
+ * The enforcing service refused the generation on allowance grounds
+ * (HTTP 402): the plan's monthly content generation allowance is used
+ * up. Carries the service's specific message (which allowance ran out,
+ * when it resets, the upgrade or add-on pack path) so the UI shows it
+ * verbatim. Nothing was generated and nothing was counted.
+ */
+export class AssetGenerationDenialError extends Error {
+  readonly code = "asset-generation-denied";
+  readonly status = 402;
+  readonly quota?: unknown;
+  readonly resetsAt?: string;
+  constructor(message: string, opts?: { quota?: unknown; resetsAt?: string }) {
+    super(message);
+    this.name = "AssetGenerationDenialError";
+    this.quota = opts?.quota;
+    this.resetsAt = opts?.resetsAt;
+  }
+}
+
 export const ASSET_ENDPOINT_SECRET_EDITOR = "VITE_FINCH_AI_ASSET_ENDPOINT";
 export const ASSET_API_KEY_SECRET = "FINCH_AI_ASSET_API_KEY";
 export const ASSET_API_KEY_SECRET_EDITOR = "VITE_FINCH_AI_ASSET_API_KEY";
@@ -140,6 +160,24 @@ export interface EndpointAssetProviderOptions {
   /** Optional key value, supplied by the caller from configuration. */
   apiKey?: string | null;
   fetchFn?: AssetFetchFn;
+  /**
+   * The signed-in user's session token getter. The enforcing service
+   * meters per user, so when a getter is supplied the binding sends
+   * the token as a Bearer credential with every call; without a token
+   * the service refuses the call (fail closed, nothing generated).
+   */
+  getAuthToken?: () => Promise<string | null>;
+  /**
+   * Idempotency key source: one fresh key per generate call, so a
+   * retried call can never be charged twice by the service.
+   */
+  makeIdempotencyKey?: () => string;
+}
+
+function defaultIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `gen-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 /**
@@ -156,11 +194,15 @@ export class EndpointAssetProvider implements AssetGenerationProvider {
   private readonly endpoint: string | null;
   private readonly apiKey: string | null;
   private readonly fetchFn: AssetFetchFn;
+  private readonly getAuthToken?: () => Promise<string | null>;
+  private readonly makeIdempotencyKey?: () => string;
 
   constructor(opts: EndpointAssetProviderOptions = {}) {
     this.endpoint = opts.endpoint?.trim() ? opts.endpoint.trim() : null;
     this.apiKey = opts.apiKey?.trim() ? opts.apiKey.trim() : null;
     this.fetchFn = opts.fetchFn ?? defaultFetch;
+    this.getAuthToken = opts.getAuthToken;
+    this.makeIdempotencyKey = opts.makeIdempotencyKey;
   }
 
   get isConfigured(): boolean {
@@ -171,6 +213,12 @@ export class EndpointAssetProvider implements AssetGenerationProvider {
     if (!this.endpoint) {
       throw new AssetGenerationNotConfiguredError(ASSET_NOT_CONFIGURED_MESSAGE);
     }
+    const authToken = this.getAuthToken
+      ? await this.getAuthToken().catch(() => null)
+      : null;
+    const idempotencyKey = this.makeIdempotencyKey
+      ? this.makeIdempotencyKey()
+      : defaultIdempotencyKey();
     let res: AssetFetchResponse;
     try {
       res = await this.fetchFn(this.endpoint, {
@@ -178,6 +226,7 @@ export class EndpointAssetProvider implements AssetGenerationProvider {
         headers: {
           "content-type": "application/json",
           ...(this.apiKey ? { "x-finch-ai-key": this.apiKey } : {}),
+          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({
           prompt: req.prompt,
@@ -191,6 +240,7 @@ export class EndpointAssetProvider implements AssetGenerationProvider {
           width: req.defaults.canvas.width,
           height: req.defaults.canvas.height,
           allowanceScope: req.allowanceScope,
+          idempotencyKey,
         }),
       });
     } catch {
@@ -199,8 +249,47 @@ export class EndpointAssetProvider implements AssetGenerationProvider {
       );
     }
     if (!res.ok) {
+      // The service answers errors as JSON { error, code, ... }: surface
+      // its specific message instead of a bare status, so an allowance
+      // denial names the allowance, the reset, and the upgrade path,
+      // and an unconfigured service reads as unconfigured, not broken.
+      let errorBody: Record<string, unknown> | null = null;
+      try {
+        const parsed: unknown = await res.json();
+        if (parsed && typeof parsed === "object") {
+          errorBody = parsed as Record<string, unknown>;
+        }
+      } catch {
+        errorBody = null;
+      }
+      const serverMessage =
+        typeof errorBody?.error === "string" && errorBody.error ? errorBody.error : null;
+      const serverCode =
+        typeof errorBody?.code === "string" && errorBody.code ? errorBody.code : null;
+      if (serverCode === "generation_not_configured") {
+        throw new AssetGenerationNotConfiguredError(
+          serverMessage ?? ASSET_NOT_CONFIGURED_MESSAGE,
+        );
+      }
+      if (res.status === 402 || serverCode === "allowance_exhausted") {
+        const quotaRec =
+          errorBody?.quota && typeof errorBody.quota === "object"
+            ? (errorBody.quota as Record<string, unknown>)
+            : null;
+        throw new AssetGenerationDenialError(
+          serverMessage ??
+            "Your FinchLearn AI allowance is used up for this month. Nothing was generated and nothing was counted.",
+          {
+            quota: errorBody?.quota,
+            resetsAt:
+              (typeof quotaRec?.resetsAt === "string" ? quotaRec.resetsAt : undefined) ??
+              (typeof errorBody?.resetsAt === "string" ? errorBody.resetsAt : undefined),
+          },
+        );
+      }
       throw new AssetGenerationProviderError(
-        `Asset generation service unavailable (${res.status}). No asset was created.`,
+        serverMessage ??
+          `Asset generation service unavailable (${res.status}). No asset was created.`,
         res.status,
       );
     }
@@ -241,10 +330,15 @@ export function assetProviderFromConfig(
   getEndpoint: () => string | null | undefined,
   getApiKey?: () => string | null | undefined,
   fetchFn?: AssetFetchFn,
+  options?: Pick<
+    EndpointAssetProviderOptions,
+    "getAuthToken" | "makeIdempotencyKey"
+  >,
 ): AssetGenerationProvider {
   const endpoint = getEndpoint()?.trim() ? getEndpoint() : null;
   if (!endpoint) return new UnconfiguredAssetProvider();
   return new EndpointAssetProvider({
+    ...options,
     endpoint,
     apiKey: getApiKey?.() ?? null,
     fetchFn,

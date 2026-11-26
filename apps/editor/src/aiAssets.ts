@@ -37,12 +37,48 @@ import {
   type StyleContext,
 } from "@finch-studio/ai-assets";
 import { characterForLegacyId, type StyleFamilyId } from "@finch-studio/characters";
+import { currentSession } from "./supabase";
 
 export function assetGenerationProvider(): AssetGenerationProvider {
   return assetProviderFromConfig(
     () => (import.meta.env.VITE_FINCH_AI_ASSET_ENDPOINT as string | undefined) ?? null,
     () => (import.meta.env.VITE_FINCH_AI_ASSET_API_KEY as string | undefined) ?? null,
+    undefined,
+    {
+      // The generation service meters per user (issue #361): send the
+      // signed-in session token with every generation call.
+      getAuthToken: async () => (await currentSession())?.access_token ?? null,
+    },
   );
+}
+
+let serviceProbe: Promise<boolean | null> | undefined;
+
+/**
+ * Ask the generation service itself whether generation is switched on
+ * (its health answer). The build can carry the endpoint while the
+ * service still has no Gemini key configured; in that state the
+ * honest answer is "not configured" and the panels say so up front
+ * instead of failing on click (issues #361 to #363). Returns true
+ * when the service reports configured, false when the endpoint is
+ * unset or the service reports unconfigured, and null when the probe
+ * could not decide (callers then trust the build configuration).
+ */
+export function probeGenerationService(): Promise<boolean | null> {
+  serviceProbe ??= (async () => {
+    const endpoint =
+      (import.meta.env.VITE_FINCH_AI_ASSET_ENDPOINT as string | undefined) ?? null;
+    if (!endpoint) return false;
+    try {
+      const res = await fetch(endpoint, { method: "GET" });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { configured?: unknown };
+      return body.configured === true;
+    } catch {
+      return null;
+    }
+  })();
+  return serviceProbe;
 }
 
 export function assetGenerationConfigured(): boolean {

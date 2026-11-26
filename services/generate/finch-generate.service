@@ -1,0 +1,18 @@
+[Unit]
+Description=FinchLearn Studio AI generation service (Gemini image, plan-metered)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/finch-generate
+Environment=PORT=8798
+Environment=PUBLIC_URL=https://render.finchlearn.com/generate
+Environment=DATA_DIR=/var/lib/finch-generate/assets
+EnvironmentFile=/opt/finch-generate/generate.env
+ExecStart=/opt/node22/bin/node /opt/finch-generate/server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

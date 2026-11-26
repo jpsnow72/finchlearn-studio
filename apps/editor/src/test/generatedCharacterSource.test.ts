@@ -76,6 +76,36 @@ describe("AiAssetsGeneratedSource", () => {
     expect(saved[0].generated?.providerId).toBe("fake-endpoint");
   });
 
+  it("requests the character kind and passes the style family through", async () => {
+    const { port, saved } = fakeLibrary();
+    let seenKind = "";
+    let seenFamily = "";
+    const capturing: AssetGenerationProvider = {
+      providerId: "fake-endpoint",
+      isConfigured: true,
+      async generate(req): Promise<GeneratedImageResult> {
+        seenKind = req.kind;
+        seenFamily = req.style.familyId;
+        return {
+          remoteUrl: "https://media.example/fox.png",
+          width: 1024,
+          height: 1024,
+          model: "fake-model",
+        };
+      },
+    };
+    const source = new AiAssetsGeneratedSource(capturing, port);
+    await source.produce({
+      kind: "generated",
+      prompt: "A fox teacher",
+      styleFamily: "B",
+    });
+    expect(seenKind).toBe("character");
+    expect(seenFamily).toBe("B");
+    expect(saved).toHaveLength(1);
+    expect(saved[0].generated?.kind).toBe("character");
+  });
+
   it("rejects requests that are not generated requests", async () => {
     const { port } = fakeLibrary();
     const source = new AiAssetsGeneratedSource(configuredProvider, port);

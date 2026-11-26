@@ -42,7 +42,7 @@ import {
   type StyleContext,
 } from "./styles.js";
 
-export type AssetKind = "prop" | "object" | "background";
+export type AssetKind = "prop" | "object" | "background" | "character";
 
 /** The Studio stage size every output default is sized against. */
 export const STAGE_SIZE = { width: 1280, height: 720 } as const;
@@ -60,6 +60,16 @@ export interface AssetOutputDefaults {
 
 /** Baked in output defaults per asset kind. The user is never asked. */
 export function outputDefaultsForKind(kind: AssetKind): AssetOutputDefaults {
+  if (kind === "character") {
+    // A character is generated like a prop (flat vector, transparent,
+    // square canvas) and then rigged; its format rules ride the prompt.
+    return {
+      look: "flat-vector",
+      background: "transparent",
+      canvas: { width: 1024, height: 1024 },
+      placement: { x: 480, y: 200, w: 320, h: 320 },
+    };
+  }
   if (kind === "background") {
     return {
       look: "flat-vector",
@@ -81,16 +91,24 @@ export function buildEffectivePrompt(
   userPrompt: string,
   style: ResolvedStyle,
   defaults: AssetOutputDefaults,
+  kind?: AssetKind,
 ): string {
   const backgroundLine =
     defaults.background === "transparent"
       ? "Isolated on a fully transparent background, no backdrop, no floor, no shadow catcher"
       : "A full bleed rectangular scene background filling the whole frame edge to edge, no border, no vignette";
+  // Characters carry the rigging format rules (issue #362): the pin
+  // wizard needs one front facing figure in a spread pose with every
+  // joint visible, or the automatic first pass has nothing to find.
+  const formatLine =
+    kind === "character"
+      ? "One single full-body character, front facing, standing in a spread pose: arms angled out and down away from the body, legs slightly apart, every joint clearly visible and separated. Isolated on a fully transparent background, no floor, no shadow catcher, no props, nothing overlapping the joints"
+      : backgroundLine;
   return [
     userPrompt.trim(),
     style.promptGuidance,
     "Flat vector illustration look",
-    backgroundLine,
+    formatLine,
     "No text, no words, no letters, no watermark",
   ].join(". ");
 }
@@ -309,7 +327,7 @@ export async function generateAndSaveAsset(
 
   const request: GenerateAssetRequest = {
     userPrompt: description,
-    prompt: buildEffectivePrompt(description, style, defaults),
+    prompt: buildEffectivePrompt(description, style, defaults, input.kind),
     kind: input.kind,
     style,
     defaults,
