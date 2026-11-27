@@ -322,6 +322,39 @@ function useShellCardsA11y() {
   });
 }
 
+/**
+ * Segment 2 burn-down (Studio #348, #338, #324, #293): the workspace
+ * Open buttons already name their project and its edited or saved
+ * date, but projects that share a title and a calendar day (the
+ * common case for several "Untitled video" projects saved the same
+ * day) still collide into one identical accessible name, so screen
+ * reader users cannot tell the cards apart. When, and only when, a
+ * base label repeats inside one rendered list, append the stable
+ * tail of the entry id so every name in the list is distinct.
+ * Labels that are already distinct keep their existing wording
+ * exactly, and nothing visible changes.
+ */
+function distinctAriaLabels<T>(
+  entries: { key: T; id: string; label: string }[],
+): Map<T, string> {
+  const counts = new Map<string, number>();
+  for (const e of entries) counts.set(e.label, (counts.get(e.label) ?? 0) + 1);
+  const used = new Map<string, number>();
+  const out = new Map<T, string>();
+  for (const e of entries) {
+    let label = e.label;
+    if ((counts.get(e.label) ?? 0) > 1) {
+      const suffix = e.id.length > 6 ? e.id.slice(-6) : e.id;
+      label = `${e.label}, ID ${suffix}`;
+      const seen = (used.get(label) ?? 0) + 1;
+      used.set(label, seen);
+      if (seen > 1) label = `${label} (${seen})`;
+    }
+    out.set(e.key, label);
+  }
+  return out;
+}
+
 export function FrontPage({
   session,
   onOpenEditor,
@@ -384,6 +417,27 @@ export function FrontPage({
       .filter((ce) => !localExports.some((le) => le.name === ce.name && le.savedAt.slice(0, 10) === ce.savedAt.slice(0, 10)))
       .map((ce) => ({ id: ce.id, name: ce.name, savedAt: ce.savedAt })),
   ];
+  const projectOpenLabels = distinctAriaLabels([
+    ...projects.map((p) => ({
+      key: p,
+      id: p.id,
+      label: `Open ${p.name} (edited ${new Date(p.updatedAt).toLocaleDateString()})`,
+    })),
+    ...cloudOnlyProjects.map((p) => ({
+      key: p,
+      id: p.id,
+      label: `Open ${p.name} (saved ${new Date(p.updatedAt).toLocaleDateString()})`,
+    })),
+  ]);
+  const exportDownloadLabels = distinctAriaLabels(
+    exportsList
+      .filter((e) => e.downloadUrl)
+      .map((e) => ({
+        key: e,
+        id: e.id,
+        label: `Download ${e.name} (saved ${new Date(e.savedAt).toLocaleDateString()})`,
+      })),
+  );
   const openCloudProject = async (id: string) => {
     setRestoreNote("Loading from your library…");
     const data = await fetchCloudProject(id);
@@ -413,7 +467,7 @@ export function FrontPage({
                 <div className="shell-empty">Edited {new Date(p.updatedAt).toLocaleDateString()}</div>
                 <button
                   type="button"
-                  aria-label={`Open ${p.name} (edited ${new Date(p.updatedAt).toLocaleDateString()})`}
+                  aria-label={projectOpenLabels.get(p) ?? `Open ${p.name} (edited ${new Date(p.updatedAt).toLocaleDateString()})`}
                   onClick={() => openLocalProject(p.id)}
                 >
                   Open
@@ -428,7 +482,7 @@ export function FrontPage({
                 </div>
                 <button
                   type="button"
-                  aria-label={`Open ${p.name} (saved ${new Date(p.updatedAt).toLocaleDateString()})`}
+                  aria-label={projectOpenLabels.get(p) ?? `Open ${p.name} (saved ${new Date(p.updatedAt).toLocaleDateString()})`}
                   onClick={() => void openCloudProject(p.id)}
                 >
                   Open
@@ -470,7 +524,12 @@ export function FrontPage({
                 <strong>{e.name}</strong>
                 <div className="shell-empty">Saved {new Date(e.savedAt).toLocaleDateString()}</div>
                 {e.downloadUrl && (
-                  <a href={e.downloadUrl} target="_blank" rel="noreferrer">
+                  <a
+                    href={e.downloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={exportDownloadLabels.get(e) ?? `Download ${e.name} (saved ${new Date(e.savedAt).toLocaleDateString()})`}
+                  >
                     Download
                   </a>
                 )}
