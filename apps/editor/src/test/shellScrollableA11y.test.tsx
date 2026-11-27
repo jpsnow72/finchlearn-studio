@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Issues #341, #342, #351, #353, #365 and #294: workspace card strips are
- * horizontally scrollable, so they must be keyboard focusable with an
- * accessible name, and each project card Open button must name its project.
+ * Issues #341, #342, #351, #353, #365 and #294: each project card Open
+ * button must name its project. Fix wave (Studio #391): the card strips
+ * themselves are scroll containers, not controls, and must not carry
+ * interactive semantics; their content stays keyboard reachable through
+ * the named inner buttons and links.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -43,16 +45,18 @@ describe("workspace scrollable regions and Open buttons", () => {
     act(() => root.unmount());
   });
 
-  it("makes both shell-cards strips focusable with accessible names", () => {
+  it("keeps both shell-cards strips non-interactive containers (fix wave, Studio #391)", () => {
+    // The strips are scroll containers, not controls: the click audit
+    // flagged the Continue editing strip as a dead control while it
+    // carried tabIndex/role/aria-label. Only the inner per-project
+    // buttons and links act, and they keep their accessible names;
+    // keyboard users reach the strip content through those controls.
     const strips = [...container.querySelectorAll(".shell-cards")];
     expect(strips.length).toBe(2);
     for (const strip of strips) {
-      expect(strip.getAttribute("tabindex")).toBe("0");
-      expect(strip.getAttribute("aria-label")?.length).toBeGreaterThan(0);
+      expect(strip.getAttribute("tabindex")).toBeNull();
+      expect(strip.getAttribute("role")).toBeNull();
     }
-    const labels = strips.map((s) => s.getAttribute("aria-label"));
-    expect(labels).toContain("Continue editing projects list");
-    expect(labels).toContain("Recent exports list");
   });
 
   it("names each Open button after its project", () => {
