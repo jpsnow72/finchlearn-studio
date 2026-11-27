@@ -259,6 +259,11 @@ input[type="range"] { accent-color: var(--accent); }
   display: flex; align-items: center; justify-content: center;
   padding: 6px 10px; font-size: 12px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; min-width: 72px;
+  /* Fix wave (Studio #396 family): scene buttons size to their label
+     (flex 0 0 auto) inside the horizontally scrolling strip instead of
+     shrinking until the label clips at ~50px; very long names still
+     ellipsize at the cap, with the button title carrying the full name. */
+  flex: 0 0 auto; max-width: 240px;
 }
 /* Scene button label truncation (issue #284): the label is a flex child
    with min-width: 0, so at narrow widths it ellipsizes inside the button

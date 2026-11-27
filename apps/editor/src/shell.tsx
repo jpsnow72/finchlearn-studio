@@ -361,12 +361,7 @@ export function FrontPage({
         {projects.length === 0 ? (
           <p className="shell-empty">No projects yet. Start your first video.</p>
         ) : (
-          <div
-            className="shell-cards"
-            tabIndex={0}
-            role="region"
-            aria-label="Continue editing projects list"
-          >
+          <div className="shell-cards">
             {projects.map((p) => (
               <div className="shell-card" key={p.id}>
                 <strong>{p.name}</strong>
@@ -424,12 +419,7 @@ export function FrontPage({
         {exportsList.length === 0 ? (
           <p className="shell-empty">Finished videos you save to your media library will show up here.</p>
         ) : (
-          <div
-            className="shell-cards"
-            tabIndex={0}
-            role="region"
-            aria-label="Recent exports list"
-          >
+          <div className="shell-cards">
             {exportsList.map((e) => (
               <div className="shell-card" key={e.id}>
                 <strong>{e.name}</strong>
