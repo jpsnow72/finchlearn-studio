@@ -191,10 +191,10 @@ export function App() {
       <SceneManager />
       <div className="studio-main">
         <nav className="studio-rail" aria-label="Editor panels">
-          <button type="button" className={flyout === "characters" ? "active" : ""} onClick={() => setFlyout(flyout === "characters" ? null : "characters")} title="Characters and objects">🧑</button>
-          <button type="button" className={flyout === "media" ? "active" : ""} onClick={() => setFlyout(flyout === "media" ? null : "media")} title="Media library">🖼️</button>
-          <button type="button" className={flyout === "templates" ? "active" : ""} onClick={() => setFlyout(flyout === "templates" ? null : "templates")} title="Templates">📐</button>
-          <button type="button" className={flyout === "script" ? "active" : ""} onClick={() => setFlyout(flyout === "script" ? null : "script")} title="Script import">📜</button>
+          <button type="button" className={flyout === "characters" ? "active" : ""} onClick={() => setFlyout(flyout === "characters" ? null : "characters")} title="Characters and objects" aria-label="Characters and objects">🧑</button>
+          <button type="button" className={flyout === "media" ? "active" : ""} onClick={() => setFlyout(flyout === "media" ? null : "media")} title="Media library" aria-label="Media library">🖼️</button>
+          <button type="button" className={flyout === "templates" ? "active" : ""} onClick={() => setFlyout(flyout === "templates" ? null : "templates")} title="Templates" aria-label="Templates">📐</button>
+          <button type="button" className={flyout === "script" ? "active" : ""} onClick={() => setFlyout(flyout === "script" ? null : "script")} title="Script import" aria-label="Script import">📜</button>
           <button type="button" className={flyout === "captions" ? "active" : ""} onClick={() => setFlyout(flyout === "captions" ? null : "captions")} title="Captions" aria-label="Captions CC">CC</button>
           <button type="button" className={flyout === "rigging" ? "active" : ""} onClick={() => setFlyout(flyout === "rigging" ? null : "rigging")} title="Custom character rigging" aria-label="Custom character rigging">🧍</button>
         </nav>

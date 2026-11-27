@@ -144,6 +144,8 @@ input[type="range"] { accent-color: var(--accent); }
    object box and can never push past the stage bounds. One shared rule
    for every text object, matching the truncation rule set below. */
 .studio-text { min-width: 0; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
+/* Stage title clip: a heading inside a text object carries the browser default block margins (0.67em each side on an h1 at 44px is about 59px total), so a 59px heading line measured 118px inside the 96px default text box and the bottom was clipped. Headings in stage text render without those default margins so the content fits its box. */
+.studio-text h1, .studio-text h2, .studio-text h3, .studio-text h4, .studio-text h5, .studio-text h6 { margin-block: 0; }
 .studio-text * { max-width: 100%; }
 .studio-obj.selected { z-index: 5; }
 .studio-sel-ring {
