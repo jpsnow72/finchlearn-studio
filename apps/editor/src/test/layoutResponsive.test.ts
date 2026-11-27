@@ -151,3 +151,15 @@ describe("studio editor round 7 fixes (issues #218, #221, #143)", () => {
     expect(app).toContain('aria-label="Captions CC"');
   });
 });
+
+describe("studio editor flyout adder row (issue #465)", () => {
+  const desktop = CSS.slice(0, CSS.lastIndexOf("@media (max-width: 820px)"));
+
+  it("wraps the ObjectAdder row at desktop widths so it cannot overflow the 264px flyout", () => {
+    // The flyout is 264px wide; an unwrapped flex row of adder buttons
+    // measured scrollWidth 356px and clipped the character picker cards.
+    expect(desktop).toContain(
+      ".adder-row { display: flex; flex-wrap: wrap; gap: 8px; }",
+    );
+  });
+});
