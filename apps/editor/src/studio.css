@@ -246,7 +246,7 @@ input[type="range"] { accent-color: var(--accent); }
 .danger-zone { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .danger-zone button { border-color: var(--danger); color: var(--danger); }
 
-.adder-row { display: flex; gap: 8px; }
+.adder-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* Timeline */
 .timeline {
