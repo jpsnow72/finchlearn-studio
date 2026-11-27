@@ -81,7 +81,8 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () =>
+      reject(new Error("The image could not be loaded. The image request failed. Nothing was created."));
     img.src = dataUrl;
   });
 }
@@ -427,7 +428,7 @@ export function RiggingWizard() {
       // exactly like an upload.
       setTab("single");
     } catch (err) {
-      setGenError(err instanceof Error ? err.message : "Generation is not available. Nothing was created.");
+      setGenError(err instanceof Error ? err.message : "Generation failed unexpectedly. Nothing was created.");
     }
   };
 
