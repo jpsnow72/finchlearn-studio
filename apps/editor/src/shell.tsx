@@ -278,6 +278,50 @@ export function LandingPage({
   );
 }
 
+/**
+ * Fix wave 2 2026-11-27 (Studio #406): a .shell-cards strip that
+ * overflows horizontally AND holds no focusable descendants (an
+ * exports strip whose cards are plain text) fails axe
+ * scrollable-region-focusable at narrow widths, because keyboard
+ * users cannot scroll it. Only in that case the strip itself
+ * becomes a focusable labelled region. Strips that fit, or whose
+ * cards carry their own buttons/links, stay plain containers
+ * (Studio #391: a strip is not a control). The effect re-evaluates
+ * on resize and on content changes.
+ */
+function useShellCardsA11y() {
+  useEffect(() => {
+    const strips = [...document.querySelectorAll<HTMLElement>(".shell-cards")];
+    if (strips.length === 0) return;
+    const apply = () => {
+      for (const el of strips) {
+        const overflow = el.scrollWidth > el.clientWidth + 1;
+        const hasFocusable = !!el.querySelector(
+          'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (overflow && !hasFocusable) {
+          el.tabIndex = 0;
+          el.setAttribute("role", "region");
+          el.setAttribute("aria-label", el.dataset.stripLabel || "Scrollable list");
+        } else {
+          el.removeAttribute("tabindex");
+          el.removeAttribute("role");
+          el.removeAttribute("aria-label");
+        }
+      }
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    for (const el of strips) ro.observe(el);
+    const mo = new MutationObserver(apply);
+    for (const el of strips) mo.observe(el, { childList: true, subtree: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  });
+}
+
 export function FrontPage({
   session,
   onOpenEditor,
@@ -287,6 +331,7 @@ export function FrontPage({
   onOpenEditor: () => void;
   onSignOut: () => void;
 }) {
+  useShellCardsA11y();
   const listed = readList<SavedProject>(PROJECTS_KEY);
   const localExports = readList<SavedExport>(EXPORTS_KEY);
   const current = useStudioStore((s) => s.project);
@@ -361,7 +406,7 @@ export function FrontPage({
         {projects.length === 0 ? (
           <p className="shell-empty">No projects yet. Start your first video.</p>
         ) : (
-          <div className="shell-cards">
+          <div className="shell-cards" data-strip-label="Continue editing projects">
             {projects.map((p) => (
               <div className="shell-card" key={p.id}>
                 <strong>{p.name}</strong>
@@ -419,7 +464,7 @@ export function FrontPage({
         {exportsList.length === 0 ? (
           <p className="shell-empty">Finished videos you save to your media library will show up here.</p>
         ) : (
-          <div className="shell-cards">
+          <div className="shell-cards" data-strip-label="Recent exports">
             {exportsList.map((e) => (
               <div className="shell-card" key={e.id}>
                 <strong>{e.name}</strong>
